@@ -17,7 +17,6 @@ use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Checks\FailingFixtureCheck;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Checks\OkFixtureCheck;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Checks\ThrowingFixtureCheck;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Checks\TwoTargetFixture;
-use RuntimeException;
 
 beforeEach(function () {
     config(['laravel-health-endpoints.cache_store' => 'array']);

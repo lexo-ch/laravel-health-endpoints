@@ -55,3 +55,20 @@ it('resolves details mode', function (string $mode, ?string $token, bool $expect
     config(['laravel-health-endpoints.details' => $mode, 'laravel-health-endpoints.token' => $token ?? '']);
     expect(app(Settings::class)->detailed())->toBe($expected);
 })->with([['auto', null, false], ['AUTO', 'secret', true], ['never', 'secret', false], ['always', null, true], ['bogus', null, false]]);
+
+it('requires a positive rate limit', function (mixed $value, int $expected) {
+    config(['laravel-health-endpoints.rate_limit' => $value]);
+    expect(app(Settings::class)->rateLimit())->toBe($expected);
+})->with([[0, 60], ['0', 60], [-5, 60], ['1', 1], [120, 120]]);
+
+it('reads app info settings', function (mixed $enabled, bool $expected) {
+    config(['laravel-health-endpoints.app_info.enabled' => $enabled]);
+    expect(app(Settings::class)->appInfoEnabled())->toBe($expected);
+})->with([[true, true], [false, false], ['false', false], ['0', false], ['TRUE', true], [null, true], ['bogus', true]]);
+
+it('reads the app version', function () {
+    config(['laravel-health-endpoints.app_info.version' => ' 2.4.1 ']);
+    expect(app(Settings::class)->appVersion())->toBe('2.4.1');
+    config(['laravel-health-endpoints.app_info.version' => null]);
+    expect(app(Settings::class)->appVersion())->toBeNull();
+});

@@ -46,7 +46,19 @@ final class Settings
 
     public function rateLimit(): int
     {
-        return $this->int('rate_limit', 60);
+        return $this->int('rate_limit', 60, 1);
+    }
+
+    public function appInfoEnabled(): bool
+    {
+        $value = $this->config->get(self::PREFIX.'app_info.enabled');
+
+        return $value === null ? true : filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
+    }
+
+    public function appVersion(): ?string
+    {
+        return $this->nullableString('app_info.version');
     }
 
     public function timeout(): int

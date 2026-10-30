@@ -26,6 +26,11 @@ final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // After every provider has booted, so checks registered in app providers get their custom routes.
+        $this->app->booted(function (): void {
+            $this->loadRoutesFrom(__DIR__.'/../Http/routes.php');
+        });
+
         if ($this->app->runningInConsole()) {
             $this->publishes([
                 __DIR__.'/../../config/laravel-health-endpoints.php' => config_path('laravel-health-endpoints.php'),
