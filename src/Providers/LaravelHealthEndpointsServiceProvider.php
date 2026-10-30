@@ -5,8 +5,13 @@ declare(strict_types=1);
 namespace LEXO\LaravelHealthEndpoints\Providers;
 
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Foundation\Http\Kernel as FoundationKernel;
+use Illuminate\Routing\Router;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\ServiceProvider;
 use LEXO\LaravelHealthEndpoints\Checks\QueueCheck;
+use LEXO\LaravelHealthEndpoints\Http\Middleware\InjectServiceMarkers;
 use LEXO\LaravelHealthEndpoints\Jobs\QueueHeartbeatJob;
 use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
 use LEXO\LaravelHealthEndpoints\Runner\HealthRunner;
@@ -70,6 +75,19 @@ final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Registered unconditionally; the middleware reads config per request and no-ops when disabled.
+        $this->app->make(Router::class)->pushMiddlewareToGroup('web', InjectServiceMarkers::class);
+
+        // The HTTP kernel re-syncs its own groups to the router, which would drop the push above; register there too.
+        $this->callAfterResolving(Kernel::class, function (Kernel $kernel): void {
+            if ($kernel instanceof FoundationKernel) {
+                $kernel->appendMiddlewareToGroup('web', InjectServiceMarkers::class);
+            }
+        });
+
+        Blade::directive('lheHeaderMarker', fn (): string => "<?php echo config('laravel-health-endpoints.markers.header'); ?>");
+        Blade::directive('lheFooterMarker', fn (): string => "<?php echo config('laravel-health-endpoints.markers.footer'); ?>");
+
         // After every provider has booted, so checks registered in app providers get their custom routes.
         $this->app->booted(function (): void {
             $this->loadRoutesFrom(__DIR__.'/../Http/routes.php');
