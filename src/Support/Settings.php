@@ -73,6 +73,26 @@ final class Settings
         return $store === '' ? null : $store;
     }
 
+    public function logChannel(): ?string
+    {
+        return $this->nullableString('log.channel');
+    }
+
+    public function logLlmChannel(): ?string
+    {
+        return $this->nullableString('log.llm_channel');
+    }
+
+    public function logLlmPriority(): ?string
+    {
+        return $this->nullableString('log.llm_priority');
+    }
+
+    public function logRemindMinutes(): int
+    {
+        return $this->int('log.remind_minutes', 0);
+    }
+
     /**
      * Comma-separated config value as a trimmed, de-duplicated list without empties.
      *
@@ -100,6 +120,13 @@ final class Settings
         }
 
         return $default;
+    }
+
+    private function nullableString(string $key): ?string
+    {
+        $value = $this->string($key);
+
+        return $value === '' ? null : $value;
     }
 
     private function string(string $key): string

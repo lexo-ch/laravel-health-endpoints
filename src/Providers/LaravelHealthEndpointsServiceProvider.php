@@ -6,6 +6,8 @@ namespace LEXO\LaravelHealthEndpoints\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
+use LEXO\LaravelHealthEndpoints\Runner\HealthRunner;
+use LEXO\LaravelHealthEndpoints\Runner\StateTracker;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 
 final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
@@ -16,6 +18,8 @@ final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
 
         $this->app->singleton(Settings::class);
         $this->app->singleton(HealthCheckRegistry::class);
+        $this->app->singleton(StateTracker::class);
+        $this->app->singleton(HealthRunner::class);
     }
 
     public function boot(): void
