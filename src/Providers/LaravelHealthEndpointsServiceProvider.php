@@ -11,6 +11,10 @@ use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\ServiceProvider;
 use LEXO\LaravelHealthEndpoints\Checks\QueueCheck;
+use LEXO\LaravelHealthEndpoints\Console\GenerateTokenCommand;
+use LEXO\LaravelHealthEndpoints\Console\ListHealthRoutesCommand;
+use LEXO\LaravelHealthEndpoints\Console\MakeHealthCheckCommand;
+use LEXO\LaravelHealthEndpoints\Console\RunHealthChecksCommand;
 use LEXO\LaravelHealthEndpoints\Http\Middleware\InjectServiceMarkers;
 use LEXO\LaravelHealthEndpoints\Jobs\QueueHeartbeatJob;
 use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
@@ -94,6 +98,13 @@ final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
         });
 
         if ($this->app->runningInConsole()) {
+            $this->commands([
+                MakeHealthCheckCommand::class,
+                ListHealthRoutesCommand::class,
+                RunHealthChecksCommand::class,
+                GenerateTokenCommand::class,
+            ]);
+
             $this->publishes([
                 __DIR__.'/../../config/laravel-health-endpoints.php' => config_path('laravel-health-endpoints.php'),
             ], 'laravel-health-endpoints-config');
