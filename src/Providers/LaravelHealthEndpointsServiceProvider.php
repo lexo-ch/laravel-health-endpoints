@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace LEXO\LaravelHealthEndpoints\Providers;
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
+use LEXO\LaravelHealthEndpoints\Checks\QueueCheck;
+use LEXO\LaravelHealthEndpoints\Jobs\QueueHeartbeatJob;
 use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
 use LEXO\LaravelHealthEndpoints\Runner\HealthRunner;
 use LEXO\LaravelHealthEndpoints\Runner\StateTracker;
+use LEXO\LaravelHealthEndpoints\Support\Heartbeats;
 use LEXO\LaravelHealthEndpoints\Support\ResultCache;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 
@@ -22,6 +26,46 @@ final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
         $this->app->singleton(StateTracker::class);
         $this->app->singleton(HealthRunner::class);
         $this->app->singleton(ResultCache::class);
+        $this->app->singleton(Heartbeats::class);
+
+        $this->callAfterResolving(Schedule::class, $this->registerHeartbeats(...));
+    }
+
+    private function registerHeartbeats(Schedule $schedule): void
+    {
+        if ($this->checkEnabled('scheduler.enabled')) {
+            $schedule->call([Heartbeats::class, 'touchScheduler'])
+                ->everyMinute()
+                ->name('lhe:scheduler-heartbeat');
+        }
+
+        if (! $this->checkEnabled('queue.enabled')) {
+            return;
+        }
+
+        $targets = (new QueueCheck)->targets();
+
+        foreach ($targets as $target) {
+            [$connection, $queue] = QueueCheck::parseTarget($target);
+            $driver = QueueCheck::driver($connection);
+
+            if ($driver === null || $driver === 'sync' || $driver === 'null') {
+                continue;
+            }
+
+            $normalized = $connection.':'.$queue;
+
+            $schedule->job(new QueueHeartbeatJob($normalized), $queue, $connection)
+                ->everyMinute()
+                ->name('lhe:queue-heartbeat:'.$normalized);
+        }
+    }
+
+    private function checkEnabled(string $key): bool
+    {
+        $value = config('laravel-health-endpoints.'.$key, true);
+
+        return filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
     }
 
     public function boot(): void

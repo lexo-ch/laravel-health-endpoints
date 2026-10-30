@@ -85,6 +85,16 @@ final class Settings
         return $store === '' ? null : $store;
     }
 
+    public function queueMaxAge(): int
+    {
+        return $this->int('queue.max_age', 5, 1);
+    }
+
+    public function schedulerMaxAge(): int
+    {
+        return $this->int('scheduler.max_age', 2, 1);
+    }
+
     public function logChannel(): ?string
     {
         return $this->nullableString('log.channel');

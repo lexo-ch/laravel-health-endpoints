@@ -72,3 +72,10 @@ it('reads the app version', function () {
     config(['laravel-health-endpoints.app_info.version' => null]);
     expect(app(Settings::class)->appVersion())->toBeNull();
 });
+
+it('reads heartbeat max ages with defaults and a minimum of one', function () {
+    expect(app(Settings::class))->queueMaxAge()->toBe(5)->schedulerMaxAge()->toBe(2);
+
+    config(['laravel-health-endpoints.queue.max_age' => '10', 'laravel-health-endpoints.scheduler.max_age' => 0]);
+    expect(app(Settings::class))->queueMaxAge()->toBe(10)->schedulerMaxAge()->toBe(2);
+});
