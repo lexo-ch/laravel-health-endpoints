@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace LEXO\LaravelHealthEndpoints\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 
 final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
@@ -14,6 +15,7 @@ final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../../config/laravel-health-endpoints.php', 'laravel-health-endpoints');
 
         $this->app->singleton(Settings::class);
+        $this->app->singleton(HealthCheckRegistry::class);
     }
 
     public function boot(): void
