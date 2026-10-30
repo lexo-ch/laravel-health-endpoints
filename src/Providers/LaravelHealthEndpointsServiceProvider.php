@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace LEXO\LaravelHealthEndpoints\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use LEXO\LaravelHealthEndpoints\Support\Settings;
 
 final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../../config/laravel-health-endpoints.php', 'laravel-health-endpoints');
+
+        $this->app->singleton(Settings::class);
     }
 
     public function boot(): void
