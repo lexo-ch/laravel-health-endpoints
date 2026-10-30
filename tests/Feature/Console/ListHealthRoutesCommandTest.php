@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\URL;
+use LEXO\LaravelHealthEndpoints\Checks\TargetedCheck;
 use LEXO\LaravelHealthEndpoints\Facades\LaravelHealthEndpoints;
+use LEXO\LaravelHealthEndpoints\Support\CheckResult;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Checks\OkFixtureCheck;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Checks\TwoTargetFixture;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Registry\CustomPathCheck;
@@ -90,4 +92,26 @@ it('warns on a short token without revealing it', function () {
 
     $this->artisan('lhe:routes')->expectsOutputToContain('shorter than 32')->assertSuccessful();
     expect(lheRoutesJson()['warnings'][0])->toContain('shorter than 32')->not->toContain('short-token');
+});
+
+it('warns when a check cannot list its targets', function () {
+    LaravelHealthEndpoints::register(new class extends TargetedCheck
+    {
+        protected ?string $name = 'broken-targets';
+
+        public function targets(): array
+        {
+            throw new RuntimeException('boom password=hunter2');
+        }
+
+        public function runTarget(string $target): CheckResult
+        {
+            return CheckResult::ok();
+        }
+    });
+
+    $warnings = lheRoutesJson()['warnings'];
+
+    expect($warnings[0])->toContain('broken-targets')->not->toContain('hunter2');
+    $this->artisan('lhe:routes')->expectsOutputToContain('broken-targets')->assertSuccessful();
 });

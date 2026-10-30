@@ -13,7 +13,7 @@ beforeEach(function () {
 
 afterEach(function () {
     File::deleteDirectory($this->dir);
-    File::deleteDirectory(base_path('stubs'));
+    File::deleteDirectory(base_path('stubs/lhe'));
 });
 
 it('generates a check class and does not double the Check suffix', function (string $input) {
@@ -63,10 +63,15 @@ it('does not overwrite an existing file without --force', function () {
     expect(file_get_contents($this->dir.'/KeepCheck.php'))->toContain('class KeepCheck');
 });
 
-it('rejects invalid class names', function (string $name) {
+it('rejects invalid, traversing, bare and reserved names', function (string $name) {
+    $before = File::allFiles(app_path());
     $this->artisan('make:health-check', ['name' => $name])->assertFailed();
-    expect(File::exists($this->dir))->toBeFalse();
-})->with(['1bad', 'bad name', 'Bad-Name']);
+
+    expect(File::exists($this->dir))->toBeFalse()
+        ->and(File::exists(base_path('Evil.php')))->toBeFalse()
+        ->and(File::exists(dirname(base_path()).'/Evil.php'))->toBeFalse()
+        ->and(File::allFiles(app_path()))->toEqual($before);
+})->with(['1bad', 'bad name', 'Bad-Name', '../../Evil', 'Sub/Foo', 'Foo\\Bar', 'Foo.Bar', 'Foo_Bar', 'foo', 'Check', 'Ping', 'PingCheck', 'DebugMode', 'Redis']);
 
 it('uses a published stub when present', function () {
     File::ensureDirectoryExists(base_path('stubs/lhe'));

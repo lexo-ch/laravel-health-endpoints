@@ -6,6 +6,7 @@ namespace LEXO\LaravelHealthEndpoints\Console;
 
 use Illuminate\Console\GeneratorCommand;
 use Illuminate\Support\Str;
+use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -47,15 +48,29 @@ final class MakeHealthCheckCommand extends GeneratorCommand
 
     private function validName(): bool
     {
-        $basename = class_basename(str_replace('/', '\\', $this->rawName()));
+        $name = trim($this->rawName());
 
-        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $basename) === 1) {
-            return true;
+        if (preg_match('/^[A-Z][A-Za-z0-9]*$/', $name) !== 1) {
+            $this->components->error('The name must be StudlyCase (letters and digits, starting with a capital letter); no paths, dots or underscores.');
+
+            return false;
         }
 
-        $this->components->error('The name must be a valid PHP class name (letters, digits, underscore; not starting with a digit).');
+        $check = Str::kebab(Str::replaceEnd('Check', '', $name));
 
-        return false;
+        if ($check === '') {
+            $this->components->error('The name must be more than just "Check".');
+
+            return false;
+        }
+
+        if (in_array($check, HealthCheckRegistry::RESERVED, true)) {
+            $this->components->error(sprintf('The check name "%s" is reserved (%s). Choose another name.', $check, implode(', ', HealthCheckRegistry::RESERVED)));
+
+            return false;
+        }
+
+        return true;
     }
 
     private function rawName(): string

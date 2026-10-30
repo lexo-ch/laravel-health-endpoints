@@ -30,6 +30,8 @@ class {{ class }} extends Check
 {
     public function run(): CheckResult
     {
+        // Replace this example body with your own check logic.
+        // (Example: report disk usage and fail at 90% or more.)
         $percent = (int) round(100 - disk_free_space('/') / disk_total_space('/') * 100);
 
         return $percent < 90

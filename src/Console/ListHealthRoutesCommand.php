@@ -7,6 +7,7 @@ namespace LEXO\LaravelHealthEndpoints\Console;
 use Illuminate\Console\Command;
 use LEXO\LaravelHealthEndpoints\Contracts\HasTargets;
 use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
+use LEXO\LaravelHealthEndpoints\Support\MessageSanitizer;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Throwable;
@@ -30,6 +31,7 @@ final class ListHealthRoutesCommand extends Command
         }
 
         $protection = $this->protection($settings);
+        $failures = [];
         $rows = [
             $this->row('/lhe/v1', null, null, $protection),
             $this->row('/lhe/v1/ping', null, null, $protection),
@@ -41,8 +43,9 @@ final class ListHealthRoutesCommand extends Command
             if ($check instanceof HasTargets) {
                 try {
                     $targets = $check->targets();
-                } catch (Throwable) {
+                } catch (Throwable $e) {
                     $targets = [];
+                    $failures[] = sprintf('Could not list targets of check "%s": %s', $name, MessageSanitizer::fromThrowable($e));
                 }
 
                 foreach ($targets as $target) {
@@ -55,7 +58,7 @@ final class ListHealthRoutesCommand extends Command
             $rows[] = $this->row('/lhe/v1/'.$path, $name, null, $protection);
         }
 
-        $warnings = $this->warnings($settings);
+        $warnings = [...$failures, ...$this->warnings($settings)];
 
         if ($this->option('json')) {
             $this->line((string) json_encode(['routes' => $rows, 'warnings' => $warnings], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));

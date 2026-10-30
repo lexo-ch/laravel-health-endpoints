@@ -48,11 +48,11 @@ it('exits 2 for an unknown target', function () {
 });
 
 it('shows failure messages (trusted CLI)', function () {
-    LaravelHealthEndpoints::register(new FailingFixtureCheck);
+    LaravelHealthEndpoints::register(new FailingFixtureCheck('disk exploded'));
 
     Artisan::call('lhe:run', ['check' => 'failing-fixture']);
 
-    expect(Artisan::output())->toContain('fail');
+    expect(Artisan::output())->toContain('fail')->toContain('disk exploded');
 });
 
 it('outputs the detailed json report with app info', function () {
@@ -67,9 +67,11 @@ it('outputs the detailed json report with app info', function () {
 });
 
 it('bypasses the result cache', function () {
-    $counter = new class extends Check
+    $check = new class extends Check
     {
-        protected ?string $name = 'counting';
+        protected ?string $name = 'flip';
+
+        public bool $ok = true;
 
         public int $runs = 0;
 
@@ -77,13 +79,29 @@ it('bypasses the result cache', function () {
         {
             $this->runs++;
 
-            return CheckResult::ok();
+            return $this->ok ? CheckResult::ok() : CheckResult::fail('now failing');
         }
     };
-    LaravelHealthEndpoints::register($counter);
+    LaravelHealthEndpoints::register($check);
+    lheReloadRoutes();
 
-    Artisan::call('lhe:run', ['check' => $counter->name()]);
-    Artisan::call('lhe:run', ['check' => $counter->name()]);
+    // Populate the result cache through the HTTP endpoint while the check is ok.
+    $this->getJson('/lhe/v1/flip')->assertOk();
+    $this->getJson('/lhe/v1/flip')->assertOk();
+    expect($check->runs)->toBe(1);
 
-    expect($counter->runs)->toBe(2);
+    $check->ok = false;
+
+    // Cached HTTP answer is stale, the CLI sees the fresh failure.
+    $this->getJson('/lhe/v1/flip')->assertOk();
+    $this->artisan('lhe:run', ['check' => 'flip'])->assertExitCode(1);
+    expect($check->runs)->toBe(2);
+
+    Artisan::call('lhe:run', ['--json' => true]);
+    $data = json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($check->runs)->toBe(3)
+        ->and($data['checks']['flip']['status'])->toBe('fail')
+        ->and($data['checks']['flip']['message'])->toBe('now failing')
+        ->and($data['cached'])->toBeFalse();
 });
