@@ -20,7 +20,7 @@ beforeEach(function () {
         'laravel-health-endpoints.cache_ttl' => 0,
         'laravel-health-endpoints.discover.enabled' => false,
         'laravel-health-endpoints.details' => 'always',
-        'laravel-health-endpoints.redis.enabled' => false,
+        'laravel-health-endpoints.database.enabled' => true,
         'database.default' => 'main',
         'database.connections.main' => ['driver' => 'sqlite', 'database' => ':memory:'],
         'database.connections.second' => ['driver' => 'sqlite', 'database' => ':memory:'],

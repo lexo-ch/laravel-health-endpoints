@@ -26,5 +26,10 @@ abstract class TestCase extends Orchestra
     protected function getEnvironmentSetUp($app): void
     {
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
+
+        // Built-ins are opt-in per test file so unrelated tests never probe real services.
+        foreach (['database', 'redis', 'cache', 'storage', 'queue', 'scheduler', 'migrations', 'debug_mode'] as $check) {
+            $app['config']->set("laravel-health-endpoints.{$check}.enabled", false);
+        }
     }
 }
