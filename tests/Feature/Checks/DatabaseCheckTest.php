@@ -89,6 +89,7 @@ it('fails fast on an unreachable mysql server with a safe message', function () 
 
     expect((microtime(true) - $start) * 1000)->toBeLessThan(3000);
     $response->assertJsonPath('checks.database.targets.down.message', 'Connection refused');
+    lheAssertNoProbeResidue();
     expect($response->getContent())->not->toContain('127.0.0.1')->not->toContain('sup3rsecret');
 })->skip(! extension_loaded('pdo_mysql'), 'pdo_mysql not available');
 
@@ -100,8 +101,12 @@ it('leaves no probe connection behind and does not touch the app connection', fu
     expect(DB::connection()->getPdo())->toBe($before);
     lheAssertNoProbeResidue();
 
-    config(['laravel-health-endpoints.database.connections' => 'main,ghost']);
-    $this->getJson('/lhe/v1/database')->assertStatus(503);
+    config([
+        'database.connections.broken' => ['driver' => 'sqlite', 'database' => '/nonexistent-lhe-dir/x.sqlite'],
+        'laravel-health-endpoints.database.connections' => 'main,broken',
+    ]);
+    $this->getJson('/lhe/v1/database/broken')->assertStatus(503)
+        ->assertJsonPath('checks.database.targets.broken.status', 'fail');
     lheAssertNoProbeResidue();
 });
 
