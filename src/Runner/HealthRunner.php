@@ -57,7 +57,15 @@ final class HealthRunner
     private function runTargeted(HealthCheck&HasTargets $check, ?string $target): CheckReport
     {
         $name = $check->name();
-        $configured = $check->targets();
+
+        try {
+            $configured = $check->targets();
+        } catch (Throwable $e) {
+            $result = CheckResult::fail(MessageSanitizer::fromThrowable($e));
+            $this->tracker->record($name, null, $result, 0.0, $e);
+
+            return $this->report($name, $result, 0.0);
+        }
 
         if ($target !== null && ! in_array($target, $configured, true)) {
             throw TargetNotFoundException::forTarget($name, $target);
@@ -109,11 +117,27 @@ final class HealthRunner
     {
         $message = $result->message === null ? null : MessageSanitizer::sanitize($result->message);
 
-        if ($message === '' && ! $result->isOk()) {
-            $message = 'Check failed';
+        if ($message === '') {
+            $message = $result->isOk() ? null : 'Check failed';
         }
 
-        return new CheckResult($result->status, $message, $result->meta);
+        /** @var array<string, mixed> $meta */
+        $meta = $this->sanitizeValue($result->meta);
+
+        return new CheckResult($result->status, $message, $meta);
+    }
+
+    private function sanitizeValue(mixed $value): mixed
+    {
+        if (is_string($value)) {
+            return MessageSanitizer::sanitize($value);
+        }
+
+        if (is_array($value)) {
+            return array_map($this->sanitizeValue(...), $value);
+        }
+
+        return $value;
     }
 
     private function report(string $name, CheckResult $result, float $ms): CheckReport

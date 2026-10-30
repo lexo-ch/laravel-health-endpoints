@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use LEXO\LaravelHealthEndpoints\Events\HealthCheckFailed;
@@ -75,22 +76,31 @@ it('re-logs still failing checks after remind_minutes without an event', functio
     Event::assertDispatchedTimes(HealthCheckFailed::class, 1);
 });
 
-it('never throws when the state store fails', function () {
-    config(['laravel-health-endpoints.cache_store' => 'does-not-exist']);
+it('still logs and dispatches when the state store fails', function () {
+    Event::fake([HealthCheckFailed::class]);
+    Cache::shouldReceive('store')->atLeast()->once()->andThrow(new RuntimeException('store broke'));
     Log::spy();
     app(StateTracker::class)->record('redis', null, CheckResult::fail('down'), 1.0);
-    expect(true)->toBeTrue();
+    Log::shouldHaveReceived('error')->once()->withArgs(fn ($m) => $m === '[LHE] redis check failed: down');
+    Event::assertDispatchedTimes(HealthCheckFailed::class, 1);
 });
 
-it('never throws when logging fails', function () {
+it('still dispatches the event when logging fails', function () {
     Log::shouldReceive('error')->once()->andThrow(new RuntimeException('log broke'));
+    Event::fake([HealthCheckFailed::class]);
     app(StateTracker::class)->record('redis', null, CheckResult::fail('down'), 1.0);
-    expect(true)->toBeTrue();
+    Event::assertDispatchedTimes(HealthCheckFailed::class, 1);
 });
 
-it('never throws when a listener fails', function () {
-    Event::listen(HealthCheckFailed::class, fn () => throw new RuntimeException('listener broke'));
+it('still logs when a listener fails', function () {
+    $called = 0;
+    Event::listen(HealthCheckFailed::class, function () use (&$called) {
+        $called++;
+
+        throw new RuntimeException('listener broke');
+    });
     Log::spy();
     app(StateTracker::class)->record('redis', null, CheckResult::fail('down'), 1.0);
-    expect(true)->toBeTrue();
+    expect($called)->toBe(1);
+    Log::shouldHaveReceived('error')->once();
 });

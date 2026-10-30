@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace LEXO\LaravelHealthEndpoints\Support;
 
 use Carbon\CarbonImmutable;
+use InvalidArgumentException;
+use Throwable;
 
 final readonly class HealthReport
 {
@@ -82,25 +84,30 @@ final readonly class HealthReport
      */
     public static function fromCacheArray(array $data): self
     {
-        $checks = [];
+        $timestamp = $data['timestamp'] ?? null;
+        $duration = $data['duration_ms'] ?? null;
 
-        if (isset($data['checks']) && is_array($data['checks'])) {
-            foreach ($data['checks'] as $name => $checkData) {
-                if (is_array($checkData)) {
-                    /** @var array<string, mixed> $checkData */
-                    $checks[(string) $name] = CheckReport::fromArray((string) $name, $checkData);
-                }
-            }
+        if (! is_string($timestamp) || ! is_array($data['checks'] ?? null) || (! is_int($duration) && ! is_float($duration))) {
+            throw new InvalidArgumentException('Corrupt health report cache data.');
         }
 
-        $duration = $data['duration_ms'] ?? 0;
-        $timestamp = $data['timestamp'] ?? null;
+        try {
+            $parsed = CarbonImmutable::parse($timestamp);
+        } catch (Throwable) {
+            throw new InvalidArgumentException('Corrupt health report cache timestamp.');
+        }
 
-        return new self(
-            $checks,
-            is_string($timestamp) ? CarbonImmutable::parse($timestamp) : CarbonImmutable::now(),
-            is_int($duration) || is_float($duration) ? (float) $duration : 0.0,
-            true,
-        );
+        $checks = [];
+
+        foreach ($data['checks'] as $name => $checkData) {
+            if (! is_array($checkData)) {
+                throw new InvalidArgumentException('Corrupt health report cache check entry.');
+            }
+
+            /** @var array<string, mixed> $checkData */
+            $checks[(string) $name] = CheckReport::fromArray((string) $name, $checkData);
+        }
+
+        return new self($checks, $parsed, (float) $duration, true);
     }
 }

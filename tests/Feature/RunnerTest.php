@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
+use LEXO\LaravelHealthEndpoints\Checks\Check;
 use LEXO\LaravelHealthEndpoints\Checks\TargetedCheck;
 use LEXO\LaravelHealthEndpoints\Events\HealthCheckFailed;
 use LEXO\LaravelHealthEndpoints\Exceptions\TargetNotFoundException;
@@ -92,7 +93,7 @@ it('catches a throwing target without stopping the others', function () {
         ->and($r->targets['y']->status)->toBe(Status::Ok);
 });
 
-it('records state per target and logs without leaking the raw exception message', function () {
+it('records state per target and logs failing targets', function () {
     Log::spy();
     Event::fake();
     app(HealthRunner::class)->runCheck(new TwoTargetFixture(['a' => false]));
@@ -102,8 +103,10 @@ it('records state per target and logs without leaking the raw exception message'
 
 it('never puts raw exception text into the response', function () {
     Log::spy();
+    Log::spy();
     $r = app(HealthRunner::class)->runCheck(new ThrowingFixtureCheck('SQLSTATE host=/var/www/app/secret.php password=hunter2'));
     expect(json_encode($r->toArray(true)))->not->toContain('hunter2')->not->toContain('/var/www');
+    Log::shouldHaveReceived('error')->once()->withArgs(fn ($m, $c) => $c['exception'] instanceof RuntimeException && ! str_contains($m, 'hunter2'));
 });
 
 it('round-trips reports through the cache array', function () {
@@ -117,3 +120,63 @@ it('round-trips reports through the cache array', function () {
         ->and($copy->checks['ok-fixture'])->toEqual($report->checks['ok-fixture'])
         ->and($copy->checks['ok-fixture'])->toBeInstanceOf(CheckReport::class);
 });
+
+it('survives a throwing targets() and keeps running other checks', function () {
+    Log::spy();
+    $bad = new class extends TargetedCheck
+    {
+        public function name(): string
+        {
+            return 'bad-targets';
+        }
+
+        public function targets(): array
+        {
+            throw new RuntimeException('timeout talking to db password=x');
+        }
+
+        public function runTarget(string $target): CheckResult
+        {
+            return CheckResult::ok();
+        }
+    };
+    $report = app(HealthRunner::class)->runAll([$bad, new OkFixtureCheck]);
+    expect($report->checks['bad-targets'])->status->toBe(Status::Fail)->message->toBe('Timeout')->targets->toBeNull()
+        ->and($report->checks['ok-fixture']->status)->toBe(Status::Ok)
+        ->and($report->httpStatus())->toBe(503);
+    Log::shouldHaveReceived('error')->once()->withArgs(fn ($m, $c) => $m === '[LHE] bad-targets check failed: Timeout' && $c['exception'] instanceof RuntimeException);
+});
+
+it('sanitizes string values in meta recursively', function () {
+    $check = new class extends Check
+    {
+        public function run(): CheckResult
+        {
+            return CheckResult::ok(null, ['dsn' => 'password=x', 'n' => 3, 'nested' => ['a' => 'redis://u:p@h']]);
+        }
+    };
+    $r = app(HealthRunner::class)->runCheck($check);
+    expect($r->meta)->toBe(['dsn' => 'password=***', 'n' => 3, 'nested' => ['a' => 'redis://***@h']]);
+});
+
+it('turns an empty ok message into null', function () {
+    $check = new class extends Check
+    {
+        public function run(): CheckResult
+        {
+            return CheckResult::ok("\n");
+        }
+    };
+    expect(app(HealthRunner::class)->runCheck($check)->message)->toBeNull();
+});
+
+it('rejects corrupt cache data', function (array $data) {
+    HealthReport::fromCacheArray($data);
+})->with([
+    'empty' => [[]],
+    'no timestamp' => [['duration_ms' => 1.0, 'checks' => []]],
+    'bad timestamp' => [['timestamp' => 'not a date', 'duration_ms' => 1.0, 'checks' => []]],
+    'no checks' => [['timestamp' => '2026-10-30T10:00:00+00:00', 'duration_ms' => 1.0]],
+    'bad check' => [['timestamp' => '2026-10-30T10:00:00+00:00', 'duration_ms' => 1.0, 'checks' => ['a' => 'x']]],
+    'no duration' => [['timestamp' => '2026-10-30T10:00:00+00:00', 'checks' => []]],
+])->throws(InvalidArgumentException::class);
