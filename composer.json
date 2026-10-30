@@ -1,0 +1,68 @@
+{
+    "name": "lexo/laravel-health-endpoints",
+    "description": "Secure health check endpoints for Laravel applications.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "LEXO GmbH",
+            "email": "websupport@lexo.ch",
+            "homepage": "https://www.lexo.ch"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "LEXO\\LaravelHealthEndpoints\\": "src/"
+        }
+    },
+    "require": {
+        "php": "^8.5",
+        "illuminate/cache": "^13.0",
+        "illuminate/console": "^13.0",
+        "illuminate/contracts": "^13.0",
+        "illuminate/database": "^13.0",
+        "illuminate/events": "^13.0",
+        "illuminate/filesystem": "^13.0",
+        "illuminate/http": "^13.0",
+        "illuminate/log": "^13.0",
+        "illuminate/queue": "^13.0",
+        "illuminate/redis": "^13.0",
+        "illuminate/routing": "^13.0",
+        "illuminate/support": "^13.0",
+        "illuminate/view": "^13.0"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.0",
+        "laravel/pint": "^1.0",
+        "orchestra/testbench": "^11.0",
+        "pestphp/pest": "^4.0",
+        "pestphp/pest-plugin-laravel": "^4.0",
+        "predis/predis": "^2.0"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "LEXO\\LaravelHealthEndpoints\\Tests\\": "tests/"
+        }
+    },
+    "prefer-stable": true,
+    "scripts": {
+        "test": "vendor/bin/pest",
+        "analyse": "vendor/bin/phpstan analyse",
+        "format": "vendor/bin/pint"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "LEXO\\LaravelHealthEndpoints\\Providers\\LaravelHealthEndpointsServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "platform": {
+            "php": "8.5.0"
+        }
+    }
+}
