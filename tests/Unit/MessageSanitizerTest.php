@@ -26,3 +26,36 @@ it('falls back to sanitized message and generic text', function () {
     expect(MessageSanitizer::fromThrowable(new RuntimeException('bad password=abc in /a/b.php:3')))->toBe('bad password=*** in [path]')
         ->and(MessageSanitizer::fromThrowable(new RuntimeException('')))->toBe('Check failed');
 });
+
+it('redacts widened secret shapes', fn (string $in, string $out) => expect(MessageSanitizer::sanitize($in))->toBe($out))->with([
+    ['api_key=abc123 failed', 'api_key=*** failed'],
+    ['DB_PASSWORD=s3cret;x=1', 'DB_PASSWORD=***;x=1'],
+    ['access_token=abc&x=1', 'access_token=***&x=1'],
+    ['password="a b" next', 'password=*** next'],
+    ["password='a b' next", 'password=*** next'],
+    ['password: hunter2', 'password: ***'],
+    ['redis://u:p@ss@host:6379 refused', 'redis://***@host:6379 refused'],
+    ['redis://u:p/ss@host:6379', 'redis://***@host:6379'],
+]);
+
+it('redacts any absolute path but keeps URLs', fn (string $in, string $out) => expect(MessageSanitizer::sanitize($in))->toBe($out))->with([
+    ['connect to /var/run/mysqld/mysqld.sock failed', 'connect to [path] failed'],
+    ['open C:\\Windows\\temp\\x.log failed', 'open [path] failed'],
+    ['GET https://example.com/health/check failed', 'GET https://example.com/health/check failed'],
+    ['read and/or write', 'read and/or write'],
+]);
+
+it('scrubs invalid utf-8', function () {
+    $out = MessageSanitizer::sanitize("bad \xB1\x31 bytes");
+    expect(mb_check_encoding($out, 'UTF-8'))->toBeTrue()->and(json_encode($out))->not->toBeFalse();
+});
+
+it('truncates multibyte to exactly 255 chars', function () {
+    $out = MessageSanitizer::sanitize(str_repeat('é', 400));
+    expect(mb_strlen($out))->toBe(255)->and(mb_check_encoding($out, 'UTF-8'))->toBeTrue();
+});
+
+it('does not map generic does-not-exist to database', function () {
+    expect(MessageSanitizer::fromThrowable(new RuntimeException('Table x does not exist')))->toBe('Table x does not exist')
+        ->and(MessageSanitizer::fromThrowable(new RuntimeException('database "app" does not exist')))->toBe('Database not found');
+});

@@ -12,14 +12,23 @@ final class MessageSanitizer
 
     public static function sanitize(string $message): string
     {
-        $line = preg_split('/\R/', $message, 2);
-        $message = $line === false ? '' : $line[0];
+        $message = mb_scrub($message);
+        $parts = preg_split('/\R/u', $message, 2);
+        $message = $parts === false ? '' : $parts[0];
 
-        $message = preg_replace('#([a-z][a-z0-9+.\-]*://)[^/\s@]*@#i', '$1***@', $message) ?? '';
-        $message = preg_replace('/\b(password|passwd|pwd|secret|token|key)=[^;&\s]*/i', '$1=***', $message) ?? '';
-        $message = preg_replace('#(?:[A-Za-z]:)?[\\\\/](?:[^\s\\\\/:]+[\\\\/])*[^\s\\\\/:]+\.php(?::\d+)?#', '[path]', $message) ?? '';
+        // scheme://user:pass@host (password may itself contain @ or /): greedy up to the last @ in the token
+        $message = preg_replace('#([a-z][a-z0-9+.\-]*://)\S*@#iu', '$1***@', $message) ?? '';
+        // password=x, DB_PASSWORD="a b", api_key: x, access_token='x'
+        $message = preg_replace(
+            '/([\w.\-]*(?:password|passwd|pwd|secret|token|key))(\s*[=:]\s*)("[^"]*"|\'[^\']*\'|[^;&\s]*)/iu',
+            '$1$2***',
+            $message,
+        ) ?? '';
+        // Windows absolute paths, then Unix absolute paths with at least two segments (URLs are left alone)
+        $message = preg_replace('#(?<![\w])[A-Za-z]:[\\\\/][^\s:\'",;]*(?::\d+)?#u', '[path]', $message) ?? '';
+        $message = preg_replace('#(?<![\w.:/\-])(?:/[^\s/:\'",;()]+){2,}(?::\d+)?#u', '[path]', $message) ?? '';
 
-        return mb_strimwidth(trim($message), 0, self::MAX_LENGTH, '');
+        return mb_substr(trim($message), 0, self::MAX_LENGTH);
     }
 
     public static function fromThrowable(Throwable $e): string
@@ -30,7 +39,7 @@ final class MessageSanitizer
             '/connection refused|no such host|could not translate host|getaddrinfo/i' => 'Connection refused',
             '/access denied|authentication failed|noauth|wrongpass/i' => 'Authentication failed',
             '/timed out|timeout/i' => 'Timeout',
-            '/unknown database|does not exist/i' => 'Database not found',
+            '/unknown database|database "?[^"]*"? does not exist/i' => 'Database not found',
         ];
 
         foreach ($map as $pattern => $safe) {

@@ -6,7 +6,6 @@ namespace LEXO\LaravelHealthEndpoints\Checks;
 
 use LEXO\LaravelHealthEndpoints\Contracts\HasTargets;
 use LEXO\LaravelHealthEndpoints\Support\CheckResult;
-use LEXO\LaravelHealthEndpoints\Support\MessageSanitizer;
 use Throwable;
 
 abstract class TargetedCheck extends Check implements HasTargets
@@ -14,16 +13,19 @@ abstract class TargetedCheck extends Check implements HasTargets
     public function run(): CheckResult
     {
         $targets = $this->targets();
+
+        if ($targets === []) {
+            return CheckResult::fail('No targets configured');
+        }
+
         $failed = 0;
 
         foreach ($targets as $target) {
             try {
-                $result = $this->runTarget($target);
-            } catch (Throwable $e) {
-                $result = CheckResult::fail(MessageSanitizer::fromThrowable($e));
-            }
-
-            if (! $result->isOk()) {
+                if (! $this->runTarget($target)->isOk()) {
+                    $failed++;
+                }
+            } catch (Throwable) {
                 $failed++;
             }
         }
