@@ -32,14 +32,11 @@ final class RedisCheck extends TargetedCheck
         }
 
         $timeout = app(Settings::class)->timeout();
-        $source['timeout'] = $timeout;
-        $source['read_timeout'] = $timeout;
-        $source['read_write_timeout'] = $timeout;
 
         $client = is_string($redis['client'] ?? null) ? $redis['client'] : 'phpredis';
         $manager = new RedisManager(app(), $client, [
             'options' => is_array($redis['options'] ?? null) ? $redis['options'] : [],
-            $target => $source,
+            $target => $this->probeConfig($source, $timeout),
         ]);
 
         $connection = null;
@@ -59,6 +56,19 @@ final class RedisCheck extends TargetedCheck
             }
             $manager->purge($target);
         }
+    }
+
+    /**
+     * @param  array<mixed>  $config
+     * @return array<mixed>
+     */
+    public function probeConfig(array $config, int $timeout): array
+    {
+        $config['timeout'] = $timeout;
+        $config['read_timeout'] = $timeout;
+        $config['read_write_timeout'] = $timeout;
+
+        return $config;
     }
 
     private function close(Connection $connection): void

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use LEXO\LaravelHealthEndpoints\Checks\DatabaseCheck;
 
 beforeEach(function () {
     config([
@@ -91,4 +92,19 @@ it('leaves no probe connection behind and does not touch the app connection', fu
     expect(DB::connection()->getPdo())->toBe($before)
         ->and(array_keys(config('database.connections')))->not->toContain('lhe_probe_main')
         ->and(array_keys(DB::getConnections()))->not->toContain('lhe_probe_main');
+});
+
+it('applies the driver-specific connect timeout to the probe config', function () {
+    $check = new DatabaseCheck;
+
+    foreach (['mysql', 'mariadb', 'pgsql'] as $driver) {
+        $config = $check->probeConfig(['driver' => $driver, 'options' => [PDO::ATTR_PERSISTENT => true]], 4);
+        expect($config['options'][PDO::ATTR_TIMEOUT])->toBe(4)
+            ->and($config['options'][PDO::ATTR_PERSISTENT])->toBeTrue()
+            ->and($config)->not->toHaveKey('connect_timeout');
+    }
+
+    expect($check->probeConfig(['driver' => 'sqlsrv'], 4)['login_timeout'])->toBe(4)
+        ->and($check->probeConfig(['driver' => 'sqlite', 'database' => ':memory:'], 4))
+        ->toBe(['driver' => 'sqlite', 'database' => ':memory:']);
 });
