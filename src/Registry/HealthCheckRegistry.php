@@ -28,9 +28,9 @@ final class HealthCheckRegistry
         'debug-mode' => [self::CHECKS_NS.'DebugModeCheck', 'debug_mode.enabled'],
     ];
 
-    private const NAME_PATTERN = '/^[a-z0-9]+(-[a-z0-9]+)*$/';
+    private const NAME_PATTERN = '/^[a-z][a-z0-9]*(-[a-z0-9]+)*\z/';
 
-    private const PATH_PATTERN = '/^[a-z0-9-]+(\/[a-z0-9-]+)*$/';
+    private const PATH_PATTERN = '/^[a-z0-9-]+(\/[a-z0-9-]+)*\z/';
 
     private const CONFIG = 'laravel-health-endpoints.';
 
@@ -47,6 +47,8 @@ final class HealthCheckRegistry
         private readonly Container $container,
         private readonly Repository $config,
         private readonly HealthCheckDiscovery $discovery,
+        /** @var array<string, array{string, string}>|null test seam: overrides the built-in map */
+        private readonly ?array $builtInMap = null,
     ) {}
 
     /**
@@ -95,7 +97,7 @@ final class HealthCheckRegistry
     {
         $candidates = [];
 
-        foreach (self::builtIn() as [$class, $key]) {
+        foreach ($this->builtInMap ?? self::builtIn() as [$class, $key]) {
             if (class_exists($class) && $this->enabled($key, true)) {
                 $candidates[] = $class;
             }
@@ -126,9 +128,13 @@ final class HealthCheckRegistry
         $seenClasses = [];
 
         foreach ($candidates as $candidate) {
+            if (is_string($candidate) && isset($seenClasses[$candidate])) {
+                continue;
+            }
+
             $check = $this->resolve($candidate);
 
-            if (isset($seenClasses[$check::class]) && is_string($candidate)) {
+            if (is_string($candidate) && isset($seenClasses[$check::class])) {
                 continue;
             }
             $seenClasses[$check::class] = true;
@@ -139,7 +145,7 @@ final class HealthCheckRegistry
                 throw InvalidHealthCheckException::invalidName($check::class, $name);
             }
 
-            $builtIn = self::builtIn()[$name][0] ?? null;
+            $builtIn = ($this->builtInMap ?? self::builtIn())[$name][0] ?? null;
             if (in_array($name, self::RESERVED, true) && $builtIn !== $check::class) {
                 throw InvalidHealthCheckException::reservedName($check::class, $name);
             }
@@ -177,7 +183,7 @@ final class HealthCheckRegistry
             }
 
             $segment = explode('/', $path)[0];
-            $taken = in_array($segment, self::RESERVED, true) || (isset($checks[$segment]) && $segment !== $name);
+            $taken = in_array($segment, self::RESERVED, true) || isset($checks[$segment]);
             if ($taken) {
                 throw InvalidHealthCheckException::pathCollision($check::class, $path, $segment);
             }

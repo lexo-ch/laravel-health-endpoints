@@ -16,7 +16,7 @@ final class InvalidHealthCheckException extends RuntimeException
 
     public static function invalidName(string $class, string $name): self
     {
-        return new self(sprintf('Health check [%s] has invalid name "%s". Names must match [a-z0-9-]+ (lowercase, digits, single hyphens); override $name or name() to rename it.', $class, $name));
+        return new self(sprintf('Health check [%s] has invalid name "%s". Names must match [a-z0-9-]+, start with a letter, and use single hyphens only; override $name or name() to rename it.', $class, $name));
     }
 
     public static function reservedName(string $class, string $name): self
