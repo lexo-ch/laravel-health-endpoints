@@ -1,6 +1,9 @@
 name: CI
 on:
   push:
+    branches:
+      - master
+      - main
   pull_request:
   workflow_call:
 permissions:
@@ -50,4 +53,5 @@ jobs:
       - name: Run tests
         run: vendor/bin/pest
       - name: Security audit
+        if: matrix.stability == 'prefer-stable'
         run: composer audit
