@@ -10,7 +10,7 @@ use LEXO\LaravelHealthEndpoints\Support\CheckResult;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 use PDO;
 
-final class DatabaseCheck extends TargetedCheck
+class DatabaseCheck extends TargetedCheck
 {
     private const PROBE_PREFIX = 'lhe_probe_';
 

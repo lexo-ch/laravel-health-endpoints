@@ -6,6 +6,14 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use LEXO\LaravelHealthEndpoints\Checks\DatabaseCheck;
 
+function lheAssertNoProbeResidue(): void
+{
+    $isProbe = static fn (string $key): bool => str_starts_with($key, 'lhe_probe_');
+
+    expect(array_filter(array_keys(config('database.connections')), $isProbe))->toBe([])
+        ->and(array_filter(array_keys(DB::getConnections()), $isProbe))->toBe([]);
+}
+
 beforeEach(function () {
     config([
         'laravel-health-endpoints.cache_store' => 'array',
@@ -63,7 +71,7 @@ it('handles connection names containing dots', function () {
 
     expect($response->json('checks.database.targets'))->toHaveKey('main.read')
         ->and($response->json('checks.database.targets')['main.read']['status'])->toBe('ok');
-    expect(array_keys(config('database.connections')))->not->toContain('lhe_probe_main.read');
+    lheAssertNoProbeResidue();
 });
 
 it('fails fast on an unreachable mysql server with a safe message', function () {
@@ -89,9 +97,31 @@ it('leaves no probe connection behind and does not touch the app connection', fu
 
     $this->getJson('/lhe/v1/database')->assertOk();
 
-    expect(DB::connection()->getPdo())->toBe($before)
-        ->and(array_keys(config('database.connections')))->not->toContain('lhe_probe_main')
-        ->and(array_keys(DB::getConnections()))->not->toContain('lhe_probe_main');
+    expect(DB::connection()->getPdo())->toBe($before);
+    lheAssertNoProbeResidue();
+
+    config(['laravel-health-endpoints.database.connections' => 'main,ghost']);
+    $this->getJson('/lhe/v1/database')->assertStatus(503);
+    lheAssertNoProbeResidue();
+});
+
+it('passes the configured timeout into the probe config', function () {
+    config(['laravel-health-endpoints.timeout' => 7]);
+
+    $spy = new class extends DatabaseCheck
+    {
+        public ?int $timeout = null;
+
+        public function probeConfig(array $config, int $timeout): array
+        {
+            $this->timeout = $timeout;
+
+            return parent::probeConfig($config, $timeout);
+        }
+    };
+
+    expect($spy->runTarget('main')->isOk())->toBeTrue()
+        ->and($spy->timeout)->toBe(7);
 });
 
 it('applies the driver-specific connect timeout to the probe config', function () {
