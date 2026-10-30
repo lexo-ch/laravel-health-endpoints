@@ -26,6 +26,13 @@ use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Registry\CustomPathCheck;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Registry\FacadeFixtureCheck;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Registry\StubRedisCheck;
 
+beforeEach(function () {
+    config([
+        'laravel-health-endpoints.database.enabled' => false,
+        'laravel-health-endpoints.redis.enabled' => false,
+    ]);
+});
+
 if (! function_exists('lheRegistryTestRegistry')) {
     function lheRegistryTestRegistry(): HealthCheckRegistry
     {
