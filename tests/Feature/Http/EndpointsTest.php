@@ -64,13 +64,13 @@ it('accepts dotted and colon target names when configured', function (string $ta
 })->with(['mysql.read', 'redis:cache']);
 
 it('404s unknown check and target', function () {
-    $this->getJson('/lhe/v1/nope')->assertNotFound()->assertExactJson(['status' => 'fail', 'message' => 'Not found']);
-    $this->getJson('/lhe/v1/two-target-fixture/zzz')->assertNotFound()->assertExactJson(['status' => 'fail', 'message' => 'Not found']);
-    $this->getJson('/lhe/v1/ok-fixture/a')->assertNotFound()->assertExactJson(['status' => 'fail', 'message' => 'Not found']);
+    $this->getJson('/lhe/v1/nope')->assertNotFound()->assertExactJson(['status' => 'error', 'message' => 'Not found']);
+    $this->getJson('/lhe/v1/two-target-fixture/zzz')->assertNotFound()->assertExactJson(['status' => 'error', 'message' => 'Not found']);
+    $this->getJson('/lhe/v1/ok-fixture/a')->assertNotFound()->assertExactJson(['status' => 'error', 'message' => 'Not found']);
 });
 
 it('404s traversal-like and malformed paths as JSON', function (string $path) {
-    $this->getJson($path)->assertNotFound()->assertExactJson(['status' => 'fail', 'message' => 'Not found']);
+    $this->getJson($path)->assertNotFound()->assertExactJson(['status' => 'error', 'message' => 'Not found']);
 })->with([
     '/lhe/v1/two-target-fixture/..%2F..%2Fetc',
     '/lhe/v1/two-target-fixture/%2E%2E',
@@ -125,7 +125,7 @@ it('answers HEAD with same status and empty body', function () {
 
 it('405s other methods as JSON', function (string $method, string $uri) {
     $this->json($method, $uri)->assertStatus(405)
-        ->assertExactJson(['status' => 'fail', 'message' => 'Method not allowed'])
+        ->assertExactJson(['status' => 'error', 'message' => 'Method not allowed'])
         ->assertHeader('Allow', 'GET, HEAD');
 })->with([
     ['POST', '/lhe/v1'],
@@ -150,12 +150,12 @@ it('answers uncommon verbs with the package 405 after auth and with security hea
         ->assertHeader('Content-Type', 'application/json');
 
     $assertHeaders($this->json($method, '/lhe/v1/ping')->assertStatus(405)
-        ->assertExactJson(['status' => 'fail', 'message' => 'Method not allowed']));
+        ->assertExactJson(['status' => 'error', 'message' => 'Method not allowed']));
 
     config(['laravel-health-endpoints.token' => 'secret-token']);
 
     $assertHeaders($this->json($method, '/lhe/v1/ping')->assertUnauthorized()
-        ->assertExactJson(['status' => 'fail', 'message' => 'Unauthorized']));
+        ->assertExactJson(['status' => 'error', 'message' => 'Unauthorized']));
     $this->json($method, '/lhe/v1/ping', [], ['Authorization' => 'Bearer secret-token'])->assertStatus(405);
 })->with(['TRACE', 'PROPFIND', 'QUERY']);
 
@@ -325,7 +325,7 @@ it('never consults the result cache for unconfigured targets', function () {
     $planted = app(HealthRunner::class)->runAll([new OkFixtureCheck])->toCacheArray();
     Cache::store('array')->put('lhe:result:'.sha1('check:two-target-fixture:zzz'), $planted, 10);
 
-    $this->getJson('/lhe/v1/two-target-fixture/zzz')->assertNotFound()->assertExactJson(['status' => 'fail', 'message' => 'Not found']);
+    $this->getJson('/lhe/v1/two-target-fixture/zzz')->assertNotFound()->assertExactJson(['status' => 'error', 'message' => 'Not found']);
 });
 
 it('reports a failure when a target list cannot be loaded', function () {

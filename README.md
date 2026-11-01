@@ -648,15 +648,15 @@ A second request within `LHE_CACHE_TTL` seconds returns the stored report with `
 
 ### Error bodies
 
-Errors use a fixed body. The message is a constant and never contains request data:
+Errors use a fixed body. The message is a constant and never contains request data. `status` is `"error"` for rejected requests (`4xx`): the request was wrong, not the app. `"fail"` is reserved for real health results and the `503` package error, so a bad token or URL never looks like an outage:
 
 | Status | Body |
 |---|---|
-| `401` | `{"status":"fail","message":"Unauthorized"}` |
-| `403` | `{"status":"fail","message":"Forbidden"}` |
-| `404` | `{"status":"fail","message":"Not found"}` |
-| `405` | `{"status":"fail","message":"Method not allowed"}` |
-| `429` | `{"status":"fail","message":"Too many requests"}` |
+| `401` | `{"status":"error","message":"Unauthorized"}` |
+| `403` | `{"status":"error","message":"Forbidden"}` |
+| `404` | `{"status":"error","message":"Not found"}` |
+| `405` | `{"status":"error","message":"Method not allowed"}` |
+| `429` | `{"status":"error","message":"Too many requests"}` |
 | `503` (package error) | `{"status":"fail","message":"Health check error"}` |
 
 ### Field reference
@@ -693,11 +693,11 @@ Clients should ignore fields they do not know. New optional fields may be added 
 | One check fails | `503` | `fail` | `{"status":"fail",…,"checks":{"redis":{"status":"fail"},"database":{"status":"ok"}}}` | Alert. Optionally read `checks.*.status` to name the failing check |
 | One target fails | `503` | `fail` | `…"database":{"status":"fail","targets":{"reporting":{"status":"fail","message":"Database not found"},…}}` | Alert. The body shows which target |
 | Cached response | same as the original (`200` or `503`) | same as the original | `{…,"cached":true,…}` | Treat like a fresh response. Results are at most `LHE_CACHE_TTL` seconds old |
-| Unknown check or target | `404` | `fail` | `{"status":"fail","message":"Not found"}` | Fix the monitor URL (or the check was disabled or renamed) |
-| Missing or wrong token | `401` | `fail` | `{"status":"fail","message":"Unauthorized"}` | **Monitor misconfiguration**, not an outage: fix the token |
-| IP not allowed | `403` | `fail` | `{"status":"fail","message":"Forbidden"}` | **Monitor misconfiguration**: allowlist the monitor IP or fix trusted proxies |
-| Rate limited | `429` | `fail` | `{"status":"fail","message":"Too many requests"}` + `Retry-After` header | **Monitor misconfiguration**: poll less often or raise `LHE_RATE_LIMIT` |
-| Wrong method | `405` | `fail` | `{"status":"fail","message":"Method not allowed"}` + `Allow: GET, HEAD` | Use `GET` or `HEAD` |
+| Unknown check or target | `404` | `error` | `{"status":"error","message":"Not found"}` | Fix the monitor URL (or the check was disabled or renamed) |
+| Missing or wrong token | `401` | `error` | `{"status":"error","message":"Unauthorized"}` | **Monitor misconfiguration**, not an outage: fix the token |
+| IP not allowed | `403` | `error` | `{"status":"error","message":"Forbidden"}` | **Monitor misconfiguration**: allowlist the monitor IP or fix trusted proxies |
+| Rate limited | `429` | `error` | `{"status":"error","message":"Too many requests"}` + `Retry-After` header | **Monitor misconfiguration**: poll less often or raise `LHE_RATE_LIMIT` |
+| Wrong method | `405` | `error` | `{"status":"error","message":"Method not allowed"}` + `Allow: GET, HEAD` | Use `GET` or `HEAD` |
 | Package error | `503` | `fail` | `{"status":"fail","message":"Health check error"}` | Alert. Check `storage/logs` for `[LHE] Health endpoint error` |
 | Ping | `200` | `ok` | `{"status":"ok","version":"2.4.1"}` | App process is alive (says nothing about DB/Redis) |
 | `HEAD` on any endpoint | same as `GET` | (no body) | empty | Use the status code only |
@@ -707,7 +707,7 @@ Clients should ignore fields they do not know. New optional fields may be added 
 
 1. **Alert on any non-2xx response or a timeout.** That is enough for most monitors.
 2. Optionally, parse `status` / `checks.*.status` (and `checks.*.targets.*`) to put the failing check name in the alert.
-3. Treat `401`, `403` and `429` as **monitor misconfiguration**, not an app outage. Route them to whoever owns the monitor, not to the on-call developer.
+3. Treat `401`, `403` and `429` (body `"status":"error"`) as **monitor misconfiguration**, not an app outage. Route them to whoever owns the monitor, not to the on-call developer.
 
 #### Recipes
 
@@ -1225,11 +1225,11 @@ LHE_MARKERS_ENABLED=false
 - Send it as `Authorization: Bearer <token>` (**recommended**) or `?token=<token>`. Query strings are written to web server, proxy and CDN access logs.
 - Compared with `hash_equals` (constant time). Never logged, echoed, cached or put in response bodies.
 - Generate one with `php artisan lhe:token`: 64 hex characters (256 bits) from `random_bytes`. It is printed only and nothing is written to disk. `lhe:routes` warns about tokens shorter than 32 characters.
-- Wrong or missing token returns `401` `{"status":"fail","message":"Unauthorized"}`. This is not logged as a health failure.
+- Wrong or missing token returns `401` `{"status":"error","message":"Unauthorized"}`. This is not logged as a health failure.
 
 **IP allowlist and trusted proxies.**
 
-- `LHE_ALLOWED_IPS` empty means any IP. When set, only listed addresses and ranges (IPv4, IPv6, CIDR via Symfony `IpUtils`) get through; all others get `403` `{"status":"fail","message":"Forbidden"}`.
+- `LHE_ALLOWED_IPS` empty means any IP. When set, only listed addresses and ranges (IPv4, IPv6, CIDR via Symfony `IpUtils`) get through; all others get `403` `{"status":"error","message":"Forbidden"}`.
 - The client IP is `$request->ip()`. The package never reads `X-Forwarded-For` itself. Behind a load balancer or reverse proxy, configure Laravel's trusted proxies (see [Quick start, setup 3](#3-quick-start)). Without that, every request has the proxy's IP. Also make sure the proxy overwrites, rather than appends to, a client-supplied `X-Forwarded-For`.
 - Token and allowlist can be combined. Then both are required: IP is checked first (`403`), then the token (`401`).
 

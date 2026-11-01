@@ -37,7 +37,7 @@ function lheStorageKeys(string $store): array
 it('requires the token when set', function () {
     config(['laravel-health-endpoints.token' => 'secret-token']);
 
-    $this->getJson('/lhe/v1')->assertUnauthorized()->assertExactJson(['status' => 'fail', 'message' => 'Unauthorized']);
+    $this->getJson('/lhe/v1')->assertUnauthorized()->assertExactJson(['status' => 'error', 'message' => 'Unauthorized']);
     $this->getJson('/lhe/v1?token=wrong')->assertUnauthorized();
     $this->getJson('/lhe/v1?token=secret-token')->assertOk();
     $this->getJson('/lhe/v1', ['Authorization' => 'Bearer secret-token'])->assertOk();
@@ -46,13 +46,13 @@ it('requires the token when set', function () {
 it('protects every route with the token', function (string $uri) {
     config(['laravel-health-endpoints.token' => 'secret-token']);
 
-    $this->getJson($uri)->assertUnauthorized()->assertExactJson(['status' => 'fail', 'message' => 'Unauthorized']);
+    $this->getJson($uri)->assertUnauthorized()->assertExactJson(['status' => 'error', 'message' => 'Unauthorized']);
 })->with(['/lhe/v1/ping', '/lhe/v1/ok-fixture', '/lhe/v1/two-target-fixture/a', '/lhe/v1/a/b/c']);
 
 it('treats malformed tokens as missing', function (string $uri, array $headers) {
     config(['laravel-health-endpoints.token' => 'secret-token']);
 
-    $this->getJson($uri, $headers)->assertUnauthorized()->assertExactJson(['status' => 'fail', 'message' => 'Unauthorized']);
+    $this->getJson($uri, $headers)->assertUnauthorized()->assertExactJson(['status' => 'error', 'message' => 'Unauthorized']);
 })->with([
     'array query' => ['/lhe/v1?token[]=secret-token', []],
     'nested array query' => ['/lhe/v1?token[a][b]=secret-token', []],
@@ -105,7 +105,7 @@ it('denies every request when the token is configured as a non-string', function
 
     foreach (['/lhe/v1', '/lhe/v1/ping', '/lhe/v1/ping?token=x', '/lhe/v1/nope'] as $uri) {
         $this->getJson($uri, ['Authorization' => 'Bearer x'])->assertUnauthorized()
-            ->assertExactJson(['status' => 'fail', 'message' => 'Unauthorized']);
+            ->assertExactJson(['status' => 'error', 'message' => 'Unauthorized']);
     }
 })->with(['array' => [['x']], 'int' => [12345], 'object' => [new stdClass]]);
 
@@ -115,7 +115,7 @@ it('enforces the IP allowlist', function (string $ip, int $status) {
     $response = $this->withServerVariables(['REMOTE_ADDR' => $ip])->getJson('/lhe/v1')->assertStatus($status);
 
     if ($status === 403) {
-        $response->assertExactJson(['status' => 'fail', 'message' => 'Forbidden']);
+        $response->assertExactJson(['status' => 'error', 'message' => 'Forbidden']);
     }
 })->with([['10.1.2.3', 200], ['192.168.1.5', 403], ['2001:db8::1', 200], ['2001:db9::1', 403], ['127.0.0.1', 403]]);
 
@@ -139,7 +139,7 @@ it('rate limits', function () {
     $this->getJson('/lhe/v1')->assertOk();
     $this->getJson('/lhe/v1/nope')->assertNotFound();
     $this->getJson('/lhe/v1')->assertStatus(429)
-        ->assertExactJson(['status' => 'fail', 'message' => 'Too many requests'])
+        ->assertExactJson(['status' => 'error', 'message' => 'Too many requests'])
         ->assertHeader('Retry-After')
         ->assertHeader('Cache-Control', 'no-store, private');
 });

@@ -8,7 +8,9 @@ use Illuminate\Http\JsonResponse;
 use LEXO\LaravelHealthEndpoints\Support\Json;
 
 /**
- * The package's fixed JSON error body: {"status":"fail","message":"..."}. Messages are constants, never request data.
+ * The package's fixed JSON error body: {"status":"error","message":"..."} for rejected requests (4xx), and
+ * {"status":"fail","message":"..."} for 5xx, where the app really is unhealthy. "fail" is reserved for health
+ * results, so a bad token or URL never looks like an outage. Messages are constants, never request data.
  */
 final class ErrorResponse
 {
@@ -29,6 +31,6 @@ final class ErrorResponse
      */
     public static function make(string $message, int $status, array $headers = []): JsonResponse
     {
-        return Json::response(['status' => 'fail', 'message' => $message], $status, $headers);
+        return Json::response(['status' => $status >= 500 ? 'fail' : 'error', 'message' => $message], $status, $headers);
     }
 }
