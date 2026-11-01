@@ -50,6 +50,8 @@ final class InjectServiceMarkers
 
         $hadLength = $response->headers->has('Content-Length');
         $response->setContent($content);
+        // The ETag described the original body; a stale one would make clients and caches serve the wrong content.
+        $response->headers->remove('ETag');
 
         if ($hadLength) {
             $response->headers->set('Content-Length', (string) strlen($content));

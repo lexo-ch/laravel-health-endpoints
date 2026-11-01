@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use LEXO\LaravelHealthEndpoints\Jobs\QueueHeartbeatJob;
@@ -116,4 +117,36 @@ it('carries only the target string in the job payload', function () {
 
     expect(get_object_vars($job))->toHaveKey('target')
         ->and($job->tries)->toBe(1);
+});
+
+it('schedules one heartbeat job per normalized target', function () {
+    config(['laravel-health-endpoints.queue.connections' => 'database,database:default, database:default ,database:emails']);
+
+    expect(collect(lheQueueEvents())->pluck('description')->all())
+        ->toBe(['lhe:queue-heartbeat:database:default', 'lhe:queue-heartbeat:database:emails']);
+});
+
+it('is unique per target for 60 seconds so jobs do not pile up without workers', function () {
+    config(['laravel-health-endpoints.queue.connections' => 'database:emails,database:default', 'laravel-health-endpoints.heartbeat_store' => 'array']);
+    Queue::fake();
+    $events = lheQueueEvents();
+
+    $job = new QueueHeartbeatJob('database:emails');
+    expect($job)->toBeInstanceOf(ShouldBeUnique::class)
+        ->and($job->uniqueFor)->toBe(60)
+        ->and($job->uniqueId())->toBe('database:emails')
+        ->and($job->uniqueVia())->toBe(Cache::store('array'));
+
+    foreach ([1, 2, 3] as $run) {
+        foreach ($events as $event) {
+            $event->run(app());
+        }
+    }
+
+    Queue::assertPushed(QueueHeartbeatJob::class, 2);
+    Queue::assertPushedOn('emails', QueueHeartbeatJob::class, fn (QueueHeartbeatJob $j) => $j->target === 'database:emails');
+
+    $this->travel(61)->seconds();
+    $events[0]->run(app());
+    Queue::assertPushed(QueueHeartbeatJob::class, 3);
 });

@@ -79,3 +79,43 @@ it('reads heartbeat max ages with defaults and a minimum of one', function () {
     config(['laravel-health-endpoints.queue.max_age' => '10', 'laravel-health-endpoints.scheduler.max_age' => 0]);
     expect(app(Settings::class))->queueMaxAge()->toBe(10)->schedulerMaxAge()->toBe(2);
 });
+
+it('accepts PHP arrays for list settings', function () {
+    config(['laravel-health-endpoints.database.connections' => [' mysql ', 'reporting', '', 'mysql', 5, null, ['x']]]);
+    expect(app(Settings::class)->list('database.connections'))->toBe(['mysql', 'reporting']);
+
+    config(['laravel-health-endpoints.allowed_ips' => ['10.0.0.1']]);
+    expect(app(Settings::class)->allowedIps())->toBe(['10.0.0.1'])
+        ->and(app(Settings::class)->isProtected())->toBeTrue();
+});
+
+it('fails closed on a non-string token', function (mixed $token) {
+    config(['laravel-health-endpoints.token' => $token, 'laravel-health-endpoints.allowed_ips' => '']);
+    $s = app(Settings::class);
+
+    expect($s->token())->toBeNull()
+        ->and($s->tokenMisconfigured())->toBeTrue()
+        ->and($s->isProtected())->toBeTrue()
+        ->and($s->detailed())->toBeTrue();
+})->with([
+    'array' => [['x']],
+    'int' => [12345],
+    'object' => [new stdClass],
+    'true' => [true],
+]);
+
+it('treats empty non-string tokens as no token', function (mixed $token) {
+    config(['laravel-health-endpoints.token' => $token, 'laravel-health-endpoints.allowed_ips' => '']);
+    $s = app(Settings::class);
+
+    expect($s->token())->toBeNull()->and($s->tokenMisconfigured())->toBeFalse()->and($s->isProtected())->toBeFalse();
+})->with(['null' => [null], 'empty array' => [[]], 'false' => [false], 'empty string' => ['  ']]);
+
+it('reads enabled flags with a true default', function (mixed $value, bool $expected) {
+    config(['laravel-health-endpoints.queue.enabled' => $value]);
+
+    expect(app(Settings::class)->checkEnabled('queue.enabled'))->toBe($expected);
+})->with([
+    [true, true], [false, false], ['false', false], ['off', false], ['0', false],
+    ['yes', true], ['garbage', true], [null, false],
+]);

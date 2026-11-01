@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Log;
 use LEXO\LaravelHealthEndpoints\Checks\Check;
 use LEXO\LaravelHealthEndpoints\Checks\TargetedCheck;
 use LEXO\LaravelHealthEndpoints\Events\HealthCheckFailed;
+use LEXO\LaravelHealthEndpoints\Events\HealthCheckRecovered;
 use LEXO\LaravelHealthEndpoints\Exceptions\TargetNotFoundException;
 use LEXO\LaravelHealthEndpoints\Runner\HealthRunner;
 use LEXO\LaravelHealthEndpoints\Support\CheckReport;
@@ -179,3 +180,106 @@ it('rejects corrupt cache data', function (array $data) {
     'bad check' => [['timestamp' => '2026-10-30T10:00:00+00:00', 'duration_ms' => 1.0, 'checks' => ['a' => 'x']]],
     'no duration' => [['timestamp' => '2026-10-30T10:00:00+00:00', 'checks' => []]],
 ])->throws(InvalidArgumentException::class);
+
+it('bounds socket I/O with LHE_TIMEOUT during a check and restores the previous value', function () {
+    config(['laravel-health-endpoints.timeout' => 4]);
+    $before = ini_get('default_socket_timeout');
+    ini_set('default_socket_timeout', '61');
+
+    $spy = new class extends Check
+    {
+        /** @var list<string|false> */
+        public array $seen = [];
+
+        public function name(): string
+        {
+            return 'socket-spy';
+        }
+
+        public function run(): CheckResult
+        {
+            $this->seen[] = ini_get('default_socket_timeout');
+
+            throw new RuntimeException('boom');
+        }
+    };
+    $targeted = new class extends TargetedCheck
+    {
+        /** @var list<string|false> */
+        public array $seen = [];
+
+        public function name(): string
+        {
+            return 'socket-spy-targets';
+        }
+
+        public function targets(): array
+        {
+            return ['a', 'b'];
+        }
+
+        public function runTarget(string $target): CheckResult
+        {
+            $this->seen[] = ini_get('default_socket_timeout');
+            $this->mysqlnd = ini_get('mysqlnd.net_read_timeout');
+
+            return CheckResult::ok();
+        }
+
+        public string|false $mysqlnd = false;
+    };
+    $mysqlndBefore = ini_get('mysqlnd.net_read_timeout');
+
+    try {
+        app(HealthRunner::class)->runAll([$spy, $targeted]);
+
+        expect($spy->seen)->toBe(['4'])
+            ->and($targeted->seen)->toBe(['4', '4'])
+            ->and(ini_get('default_socket_timeout'))->toBe('61')
+            ->and(ini_get('mysqlnd.net_read_timeout'))->toBe($mysqlndBefore);
+
+        if ($mysqlndBefore !== false) {
+            expect($targeted->mysqlnd)->toBe('4');
+        }
+    } finally {
+        ini_set('default_socket_timeout', (string) $before);
+    }
+});
+
+it('recovers a check-level failure once targets() works again and logs the next failure again', function () {
+    Log::spy();
+    Event::fake();
+    $check = new class extends TargetedCheck
+    {
+        public bool $broken = true;
+
+        public function name(): string
+        {
+            return 'flaky-targets';
+        }
+
+        public function targets(): array
+        {
+            return $this->broken ? throw new RuntimeException('targets unavailable') : ['a'];
+        }
+
+        public function runTarget(string $target): CheckResult
+        {
+            return CheckResult::ok();
+        }
+    };
+    $runner = app(HealthRunner::class);
+
+    $runner->runCheck($check);
+    $check->broken = false;
+    $runner->runCheck($check);
+    $runner->runCheck($check);
+    $check->broken = true;
+    $runner->runCheck($check);
+
+    Log::shouldHaveReceived('error')->twice()->withArgs(fn ($m) => str_starts_with($m, '[LHE] flaky-targets check failed'));
+    Log::shouldHaveReceived('info')->once()->withArgs(fn ($m) => $m === '[LHE] flaky-targets check recovered');
+    Event::assertDispatchedTimes(HealthCheckFailed::class, 2);
+    Event::assertDispatched(HealthCheckRecovered::class, fn ($e) => $e->check === 'flaky-targets' && $e->target === null);
+    Event::assertDispatchedTimes(HealthCheckRecovered::class, 1);
+});

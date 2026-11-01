@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace LEXO\LaravelHealthEndpoints\Checks;
 
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+use Illuminate\Database\Connection;
+use Illuminate\Database\ConnectionInterface;
 use LEXO\LaravelHealthEndpoints\Support\CheckResult;
+use LEXO\LaravelHealthEndpoints\Support\ProbeConnection;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 use PDO;
 
-class DatabaseCheck extends TargetedCheck
+final class DatabaseCheck extends TargetedCheck
 {
-    private const PROBE_PREFIX = 'lhe_probe_';
-
     public function targets(): array
     {
         $configured = app(Settings::class)->list('database.connections');
@@ -36,83 +35,16 @@ class DatabaseCheck extends TargetedCheck
             return CheckResult::fail('Connection not configured');
         }
 
-        $timeout = app(Settings::class)->timeout();
-        $probe = self::PROBE_PREFIX.$target.'_'.Str::random(8);
         $driver = is_string($source['driver'] ?? null) ? $source['driver'] : 'unknown';
 
-        $this->setConnection($probe, $this->probeConfig($source, $timeout));
-
-        try {
-            $connection = DB::connection($probe);
+        return ProbeConnection::using($target, $source, app(Settings::class)->timeout(), function (ConnectionInterface $connection) use ($driver): CheckResult {
             $connection->select('select 1');
 
             return CheckResult::ok(meta: [
                 'driver' => $driver,
-                'version' => $this->version($connection->getPdo()),
+                'version' => $connection instanceof Connection ? $this->version($connection->getPdo()) : null,
             ]);
-        } finally {
-            DB::purge($probe);
-            $this->setConnection($probe, null);
-        }
-    }
-
-    /**
-     * Copy of a connection config with the driver-specific connect timeout applied.
-     *
-     * @param  array<mixed>  $config
-     * @return array<string, mixed>
-     */
-    public function probeConfig(array $config, int $timeout): array
-    {
-        $config = $this->stringKeyed($config);
-
-        switch ($config['driver'] ?? null) {
-            case 'mysql':
-            case 'mariadb':
-            case 'pgsql':
-                $options = is_array($config['options'] ?? null) ? $config['options'] : [];
-                $options[PDO::ATTR_TIMEOUT] = $timeout;
-                $config['options'] = $options;
-                break;
-            case 'sqlsrv':
-                $config['login_timeout'] = $timeout;
-                break;
-        }
-
-        return $config;
-    }
-
-    /**
-     * @param  array<mixed>  $config
-     * @return array<string, mixed>
-     */
-    private function stringKeyed(array $config): array
-    {
-        $out = [];
-        foreach ($config as $key => $value) {
-            $out[(string) $key] = $value;
-        }
-
-        return $out;
-    }
-
-    /**
-     * Whole-array access so names containing dots are never treated as config paths.
-     *
-     * @param  array<string, mixed>|null  $config  null removes the entry
-     */
-    private function setConnection(string $name, ?array $config): void
-    {
-        $all = config('database.connections');
-        $all = is_array($all) ? $all : [];
-
-        if ($config === null) {
-            unset($all[$name]);
-        } else {
-            $all[$name] = $config;
-        }
-
-        config()->set('database.connections', $all);
+        });
     }
 
     private function version(PDO $pdo): ?string

@@ -115,3 +115,18 @@ it('warns when a check cannot list its targets', function () {
     expect($warnings[0])->toContain('broken-targets')->not->toContain('hunter2');
     $this->artisan('lhe:routes')->expectsOutputToContain('broken-targets')->assertSuccessful();
 });
+
+it('warns when the token is configured as a non-string', function () {
+    config(['laravel-health-endpoints.token' => ['x'], 'laravel-health-endpoints.allowed_ips' => '']);
+
+    $data = lheRoutesJson();
+
+    expect($data['routes'][0]['protection'])->toBe('token')
+        ->and($data['warnings'][0])->toContain('not a string');
+});
+
+it('prints json urls with unescaped slashes', function () {
+    Artisan::call('lhe:routes', ['--json' => true]);
+
+    expect(Artisan::output())->toContain('"url": "http://example.test/lhe/v1/ping"');
+});

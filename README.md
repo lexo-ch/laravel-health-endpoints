@@ -131,7 +131,7 @@ return [
 ];
 ```
 
-> **List values stay comma-separated strings.** `allowed_ips`, `database.connections`, `redis.connections`, `cache.stores`, `storage.disks`, `queue.connections` and `debug_mode.forbidden_environments` are read as comma-separated **strings**, even in the published file (`'allowed_ips' => '10.0.0.0/8,192.168.1.10'`). A PHP array there is ignored and treated as empty. For `allowed_ips` that means **no allowlist**. Only `checks` is a real PHP array.
+> **List values: comma-separated string or PHP array.** `allowed_ips`, `database.connections`, `redis.connections`, `cache.stores`, `storage.disks`, `queue.connections` and `debug_mode.forbidden_environments` accept either a comma-separated string (`'allowed_ips' => '10.0.0.0/8,192.168.1.10'`, the form the env vars use) or a PHP array of strings (`'allowed_ips' => ['10.0.0.0/8', '192.168.1.10']`). Entries are trimmed, empty and non-string entries are ignored. **`token` must be a string.** Any other non-empty value (array, int, object) is treated as a misconfiguration and fails closed: every `/lhe/v1*` request gets `401` and `php artisan lhe:routes` warns about it.
 
 **Publishing the generator stubs** (optional) lets you change the template that `php artisan make:health-check` uses, for example to add your team's header comment or base class:
 
@@ -237,9 +237,9 @@ curl -i -H "Authorization: Bearer $LHE_TOKEN" https://app.example.com/lhe/v1
 
 - **Auth runs before routing.** Without a valid token, an unknown check returns `401`, not `404`, so callers cannot enumerate checks or targets.
 - **Targets come only from configuration.** A target in the URL that is not in the configured list returns `404`. The package never connects to a connection, disk or store you did not configure.
-- **Liveness (`/lhe/v1/ping`)** goes through steps 1 to 3 and then answers immediately. It never touches the database, Redis or cache, and is never cached.
+- **Liveness (`/lhe/v1/ping`)** goes through steps 1 to 3 and then answers immediately. It never touches the database, Redis or the app's cache stores (the rate-limit counter lives in `LHE_CACHE_STORE`, `file` by default), and is never cached.
 - Routes live outside the `web` and `api` groups: no session, no cookies, no CSRF.
-- The scheduler and queue checks read **heartbeats**. The package registers an every-minute scheduled callback (`lhe:scheduler-heartbeat`) and an every-minute queued job per queue target (`lhe:queue-heartbeat:{connection}:{queue}`). Both write a timestamp into the heartbeat store.
+- The scheduler and queue checks read **heartbeats**. The package registers an every-minute scheduled callback (`lhe:scheduler-heartbeat`) and an every-minute queued job per queue target (`lhe:queue-heartbeat:{connection}:{queue}`; `redis` and `redis:default` count as one target). Both write a timestamp into the heartbeat store. The job is `ShouldBeUnique` per target with `uniqueFor = 60` (lock in the heartbeat store): a new heartbeat job is not queued while the previous one for that target is still waiting and less than 60 s old, so overlapping scheduler runs (several servers running `schedule:run`) cannot queue duplicates.
 
 ---
 
@@ -263,7 +263,7 @@ All endpoints accept `GET` and `HEAD` only. Every response is `Content-Type: app
 | GET, HEAD | `/lhe/v1/{check}` | Any custom check by name (e.g. `/lhe/v1/disk-space`) | 200, 503, 401, 403, 404, 429 |
 | GET, HEAD | `/lhe/v1/{check}/{target}` | One target of a custom check that has targets | 200, 503, 401, 403, 404, 429 |
 | GET, HEAD | `/lhe/v1/{custom/path}` | A custom check with its own path (e.g. `/lhe/v1/billing/stripe`) | 200, 503, 401, 403, 429 |
-| other | any `/lhe/v1/...` | `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` | 405 (`Allow: GET, HEAD`), after auth |
+| other | any `/lhe/v1/...` | `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE`, `CONNECT`, `QUERY`, `PURGE`, `LINK`, `UNLINK` and the WebDAV verbs (`PROPFIND`, `PROPPATCH`, `MKCOL`, `COPY`, `MOVE`, `LOCK`, `UNLOCK`, `SEARCH`, `REPORT`) | 405 (`Allow: GET, HEAD`), after auth. Any other, non-standard method gets Laravel's own `405` without the package's headers |
 
 Status code meaning:
 
@@ -324,7 +324,7 @@ If both a non-empty `Authorization: Bearer` header and `?token=` are sent, the h
 
 ## 6. Response format
 
-Bodies are plain JSON (not JSON:API). The examples below were captured from real requests and pretty-printed with `jq`. On the wire the JSON is compact (`{"status":"ok",...}`, no spaces) and non-ASCII characters are escaped (`—` is sent as `—`). Keep that in mind for keyword monitors.
+Bodies are plain JSON (not JSON:API). The examples below were captured from real requests and pretty-printed with `jq`. On the wire the JSON is compact (`{"status":"ok",...}`, no spaces). Non-ASCII characters and slashes are sent as-is (`—`, `https://…`); only `<`, `>`, `&`, `'` and `"` inside string values are escaped as `\u003C`-style sequences. `checks` and `targets` are always JSON objects (`{}` when empty), even when target names are numeric. Keep that in mind for keyword monitors.
 
 ### Detailed vs minimal output
 
@@ -875,7 +875,7 @@ Crontab, every minute:
 - If the tool supports custom request headers: `Authorization: Bearer <LHE_TOKEN>`. If it does not, append `?token=<LHE_TOKEN>` (the token then appears in your access logs; prefer an IP allowlist for such tools).
 - Expected status: `200`
 - Keyword (optional): `"status":"ok"` must be present
-- Timeout: at least 15–20 s for the aggregate endpoint (see polling guidance below)
+- Timeout: at least 2 × `LHE_TIMEOUT` × the number of server targets for the aggregate endpoint, typically 20–30 s (see polling guidance below)
 
 **Kubernetes liveness and readiness probes**
 
@@ -1005,7 +1005,20 @@ The markers are not behind the token or IP allowlist. They reveal nothing except
 
 - **Interval vs. `LHE_CACHE_TTL`** (default 10 s): polling faster than the TTL only returns cached results (`"cached": true`). An interval of 30–60 s is plenty.
 - **Interval vs. `LHE_RATE_LIMIT`** (default 60/min **per IP**): add up all monitors polling from the same IP (several endpoints, several monitors behind one NAT) and stay well below the limit, or raise it.
-- **Monitor timeout:** each DB/Redis target can take up to `LHE_TIMEOUT` seconds (default 3) to fail when a server is unreachable. Checks run sequentially, so set the monitor timeout above `LHE_TIMEOUT` × number of DB/Redis targets, plus time for custom checks. For example, 2 DB + 1 Redis targets need more than 9 s; use 15–20 s for `/lhe/v1`. Per-check endpoints and `/ping` can use shorter timeouts.
+- **Monitor timeout:** every built-in target that talks to a server (each DB, Redis, cache store and queue target, plus `migrations` and `scheduler`) is bounded by `LHE_TIMEOUT` (default 3 s) for connecting and, where the driver supports it, again for reading, so a dead or hanging server costs at most about 2 × `LHE_TIMEOUT` per target. Checks run sequentially: set the monitor timeout above 2 × `LHE_TIMEOUT` × the number of such targets, plus time for custom checks. For example, 2 DB + 1 Redis + 1 cache target need more than 24 s in the worst case; use 25–30 s for `/lhe/v1`, or monitor per check. Per-check endpoints and `/ping` can use shorter timeouts. See [what `LHE_TIMEOUT` bounds](#what-lhe_timeout-bounds).
+
+
+#### What `LHE_TIMEOUT` bounds
+
+- **`database` and `migrations`:** each runs on a throwaway probe copy of the connection with a connect timeout of `LHE_TIMEOUT`. The probe is purged afterwards; your app's connection is never reused, reconnected or purged.
+- **`redis`:** fresh probe connection with `timeout`/`read_timeout` = `LHE_TIMEOUT`.
+- **Every check and target (built-in and custom):** while it runs, `default_socket_timeout` and `mysqlnd.net_read_timeout` are set to `LHE_TIMEOUT` and restored afterwards. This bounds predis/phpredis sockets without their own timeouts, PHP stream and file sockets, and MySQL/MariaDB reads on connections opened during the check (e.g. the `cache` check on a `redis` or `database` store, and heartbeat reads for `queue`/`scheduler`).
+
+**Not bounded by the package:**
+
+- Connections your app already opened earlier in the same request or Octane worker keep the timeouts they were created with (e.g. a `database` cache store or the Redis connection behind `LHE_HEARTBEAT_STORE`). Set `read_timeout`/`timeout` on those connections in `config/database.php` if a hanging server is a concern.
+- PostgreSQL and SQL Server queries after the connect (no read timeout in PDO); a server that accepts connections but never answers can hang until PHP's `max_execution_time` or your web server's timeout.
+- Code inside custom checks that does not use sockets (CPU-bound work, `sleep`). Use explicit timeouts on HTTP clients.
 
 ---
 
@@ -1017,7 +1030,7 @@ All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`,
 
 | Variable | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `LHE_TIMEOUT` | int (s, ≥ 1) | `3` | Connection timeout of the DB probes (`mysql`, `mariadb`, `pgsql`, `sqlsrv`) and connect/read timeout of the Redis probes. Custom checks must set their own timeouts | `5` |
+| `LHE_TIMEOUT` | int (s, ≥ 1) | `3` | Connect timeout of the DB probes (`database`, `migrations`; `mysql`, `mariadb`, `pgsql`, `sqlsrv`), connect/read timeout of the Redis probes, and the socket timeout (`default_socket_timeout`, `mysqlnd.net_read_timeout`) while any check runs. See [what `LHE_TIMEOUT` bounds](#what-lhe_timeout-bounds). Custom checks should still set their own timeouts | `5` |
 
 **Security**
 
@@ -1033,7 +1046,7 @@ All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`,
 | Variable | Type | Default | Description | Example |
 |---|---|---|---|---|
 | `LHE_CACHE_TTL` | int (s, ≥ 0) | `10` | Result cache lifetime per URL. `0` disables the cache | `30` |
-| `LHE_CACHE_STORE` | string | `file` | Cache store for results, check state (for transition logging) and the public-warning flag. Deliberately not Redis/DB by default, since those may be what is down | `file` |
+| `LHE_CACHE_STORE` | string | `file` | Cache store for results, check state (for transition logging), rate-limit counters and the public-warning flag. Deliberately not Redis/DB by default, since those may be what is down | `file` |
 | `LHE_HEARTBEAT_STORE` | string | app default cache store | Cache store for scheduler/queue heartbeats. **Must be shared** by web, scheduler and worker processes | `redis` |
 
 > Don't confuse `LHE_CACHE_TTL`/`LHE_CACHE_STORE` (the package's own result cache) with `LHE_CACHE_ENABLED`/`LHE_CACHE_STORES` (the built-in `cache` **check**).
@@ -1212,9 +1225,9 @@ All built-in checks are enabled by default. Disabling one (`LHE_<NAME>_ENABLED=f
 ### Migrations (`migrations`)
 
 - **Verifies:** every migration file has been run on the default connection.
-- **Probe:** compares the files in `database/migrations` (plus paths registered by packages via `loadMigrationsFrom`) with the `migrations` table.
+- **Probe:** compares the files in `database/migrations` (plus paths registered by packages via `loadMigrationsFrom`) with the `migrations` table, read through a throwaway probe copy of the migrator's connection (default connection) with a connect timeout of `LHE_TIMEOUT`. Your app's connection is never touched.
 - **Meta:** `pending` (count).
-- **Messages:** `Migrations table not found` (run `php artisan migrate`), `2 pending migration(s): 2026_10_01_000000_create_orders_table, 2026_10_02_000000_add_status_to_orders_table` (up to three names, then `, …`). If the default DB is down, the mapped connection error (e.g. `Connection refused`).
+- **Messages:** `Migrations table not found` (run `php artisan migrate`), `Connection not configured` (the default connection is missing from `config/database.php`), `2 pending migration(s): 2026_10_01_000000_create_orders_table, 2026_10_02_000000_add_status_to_orders_table` (up to three names, then `, …`). If the default DB is down, the mapped connection error (e.g. `Connection refused`).
 - **When to disable:** apps without a database or without migrations.
 
 ### Debug mode (`debug-mode`)
@@ -1235,7 +1248,7 @@ All built-in checks are enabled by default. Disabling one (`LHE_<NAME>_ENABLED=f
 - the **header marker** `<template id="lhe-service-up-header">UP</template>` immediately after the first opening `<head …>` tag (case-insensitive, attributes allowed);
 - the **footer marker** `<template id="lhe-service-up-footer">UP</template>` immediately before the **last** `</body>` (case-insensitive, so a `</body>` string inside an inline script earlier in the page is ignored).
 
-`<template>` content is never rendered, so users see nothing. If an anchor tag is missing, that marker is skipped. If the exact marker string is already in the page (for example via a Blade directive), it is not added again. When the response had a `Content-Length` header, it is recalculated.
+`<template>` content is never rendered, so users see nothing. If an anchor tag is missing, that marker is skipped. If the exact marker string is already in the page (for example via a Blade directive), it is not added again. When the response had a `Content-Length` header, it is recalculated, and an `ETag` header is removed because it no longer matches the body.
 
 **Skipped responses.** Markers are only injected into responses that are:
 
@@ -1287,7 +1300,7 @@ LHE_MARKERS_ENABLED=false
 
 **Token.**
 
-- `LHE_TOKEN` empty means no token is required. When set, every `/lhe/v1*` request (including `ping`) needs it.
+- `LHE_TOKEN` empty means no token is required. When set, every `/lhe/v1*` request (including `ping`) needs it. A non-string `token` value in the published config (array, int, object) fails closed: every request is denied with `401`.
 - Send it as `Authorization: Bearer <token>` (**recommended**) or `?token=<token>`. Query strings are written to web server, proxy and CDN access logs.
 - Compared with `hash_equals` (constant time). Never logged, echoed, cached or put in response bodies.
 - Generate one with `php artisan lhe:token`: 64 hex characters (256 bits) from `random_bytes`. It is printed only and nothing is written to disk. `lhe:routes` warns about tokens shorter than 32 characters.
@@ -1302,7 +1315,7 @@ LHE_MARKERS_ENABLED=false
 **Rate limiting.**
 
 - `LHE_RATE_LIMIT` requests per minute per client IP (default 60). It runs **before** the IP and token checks to slow down token brute-forcing. Over the limit: `429` with `Retry-After`.
-- Uses Laravel's rate limiter (the app's `cache.limiter` store, by default the default cache store). If that store is unavailable, the limiter **fails open**: requests are not throttled, but the IP allowlist and token are still enforced. A cache outage cannot take down your health endpoints.
+- Uses Laravel's rate limiter on the package's own store, `LHE_CACHE_STORE` (`file` by default), never the app's default or `cache.limiter` store, so a slow or down database/Redis cache cannot stall `ping`. Counters are therefore per server unless `LHE_CACHE_STORE` points at a shared store. If that store is unavailable, the limiter **fails open**: requests are not throttled, but the IP allowlist and token are still enforced. A cache outage cannot take down your health endpoints.
 
 **Order of evaluation:** rate limit → IP allowlist → token → routing (404/405) → checks. Unauthenticated callers cannot enumerate checks or targets: an unknown check with a bad token returns `401`, not `404`.
 
@@ -1378,7 +1391,7 @@ Checks without targets log without the `:{target}` part:
 
 **Context keys:** `check`, `target` (`null` for checks without targets), `message` (sanitized), `meta`, `duration_ms`, `exception` (failures caused by an exception; the raw exception, log only), `llm`.
 
-**Channel:** `LHE_LOG_CHANNEL`, empty = app default. Unexpected internal errors of the endpoint itself are logged on the default channel as `[LHE] Health endpoint error` (with `exception`, `method`, `path`; never the query string).
+**Channel:** `LHE_LOG_CHANNEL`, empty = app default. Unexpected internal errors of the endpoint itself are logged on the default channel as `[LHE] Health endpoint error` (with `exception`, `method`, `path`; never the query string), at most once per minute per exception class (flag in `LHE_CACHE_STORE`; if that store is down, every occurrence is logged).
 
 ### `llm` context and `lexo/laravel-log-monitor`
 
@@ -1667,6 +1680,8 @@ The same class registered several ways is only added once.
 | Inject dependencies via the constructor | Catch every exception and return `ok` |
 
 `duration_ms` is measured by the package; do not measure it yourself. String values in `meta` are sanitized like messages.
+
+**Laravel Octane / long-running workers.** Check instances are resolved once and memoized per worker (the registry is a singleton), so the same object serves many requests. Keep checks stateless: no per-request data in properties, and do not inject request-scoped services (`Request`, the authenticated user, session) into the constructor. Resolve anything per-run inside `run()` / `runTarget()` instead.
 
 ---
 
@@ -1961,7 +1976,7 @@ LHE_HEARTBEAT_STORE=redis   # or database, memcached, dynamodb
 
 If that store goes down, the scheduler and queue checks fail as well.
 
-Similarly, `LHE_CACHE_STORE` (`file` by default) is per server. Each server tracks its own state, so with N web servers a failure may be logged up to N times. Point `LHE_CACHE_STORE` at a shared store if you prefer one entry, accepting that it then depends on that store (results are computed uncached and state is not tracked while it is down).
+Similarly, `LHE_CACHE_STORE` (`file` by default) is per server. Each server tracks its own state and rate-limit counters, so with N web servers a failure may be logged up to N times and a client may make up to N × `LHE_RATE_LIMIT` requests per minute. Point `LHE_CACHE_STORE` at a shared store if you prefer one entry, accepting that it then depends on that store (results are computed uncached and state is not tracked while it is down).
 
 ### `403 Forbidden` behind a load balancer
 

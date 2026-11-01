@@ -44,3 +44,17 @@ it('keeps the Boost guideline free of raw PHP tags and Blade directives outside 
         ->and($guideline)->toStartWith('@verbatim')
         ->and($guideline)->toEndWith('@endverbatim');
 });
+
+it('keeps development files out of the dist archive', function () use ($root) {
+    $attributes = (string) @file_get_contents($root.'/.gitattributes');
+    preg_match_all('/^(\S+)\s+export-ignore\s*$/m', $attributes, $m);
+
+    expect($m[1])->toEqualCanonicalizing([
+        '/.github', '/.superpowers', '/docs', '/tests', '/.gitattributes', '/.gitignore', '/.releaserc',
+        '/package.json', '/package-lock.json', '/phpstan.neon', '/phpunit.xml', '/pint.json',
+    ]);
+
+    foreach (['src', 'config', 'stubs', 'resources', 'composer.json', 'README.md', 'LICENSE'] as $shipped) {
+        expect($m[1])->not->toContain('/'.$shipped);
+    }
+});

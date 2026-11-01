@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use LEXO\LaravelHealthEndpoints\Contracts\HasTargets;
 use LEXO\LaravelHealthEndpoints\Contracts\HealthCheck;
@@ -16,6 +17,7 @@ use LEXO\LaravelHealthEndpoints\Http\ErrorResponse;
 use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
 use LEXO\LaravelHealthEndpoints\Runner\HealthRunner;
 use LEXO\LaravelHealthEndpoints\Support\HealthReport;
+use LEXO\LaravelHealthEndpoints\Support\Json;
 use LEXO\LaravelHealthEndpoints\Support\ResultCache;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 use Throwable;
@@ -27,6 +29,19 @@ use Throwable;
  */
 final class HealthController
 {
+    /**
+     * Methods beyond Router::$verbs routed to fallback(), so they get the package's JSON 405 (after auth, with security
+     * headers) instead of the framework's. Methods not listed here still get the framework's 405.
+     *
+     * @var list<string>
+     */
+    public const EXTRA_METHODS = [
+        'TRACE', 'CONNECT', 'QUERY', 'PURGE', 'LINK', 'UNLINK',
+        'PROPFIND', 'PROPPATCH', 'MKCOL', 'COPY', 'MOVE', 'LOCK', 'UNLOCK', 'SEARCH', 'REPORT',
+    ];
+
+    private const ERROR_LOG_SECONDS = 60;
+
     public function all(Request $request): JsonResponse
     {
         return $this->guard($request, function (): JsonResponse {
@@ -49,7 +64,7 @@ final class HealthController
                 $body['app'] = $app;
             }
 
-            return new JsonResponse($body);
+            return Json::response($body);
         });
     }
 
@@ -135,7 +150,7 @@ final class HealthController
     {
         $settings = app(Settings::class);
 
-        return new JsonResponse($report->toArray($settings->detailed(), $this->appInfo()), $report->httpStatus());
+        return Json::response($report->toJsonArray($settings->detailed(), $this->appInfo()), $report->httpStatus());
     }
 
     /**
@@ -166,17 +181,36 @@ final class HealthController
         } catch (TargetNotFoundException) {
             return ErrorResponse::make(ErrorResponse::NOT_FOUND, 404);
         } catch (Throwable $e) {
-            try {
-                Log::error('[LHE] Health endpoint error', [
-                    'exception' => $e,
-                    'method' => $request->method(),
-                    'path' => $request->path(),
-                ]);
-            } catch (Throwable) {
-                // Logging must not break the error response.
-            }
+            $this->logError($request, $e);
 
             return ErrorResponse::make(ErrorResponse::ERROR, 503);
+        }
+    }
+
+    /**
+     * Logs at most once per ERROR_LOG_SECONDS per exception class (flag in the package store), so a broken check
+     * polled by several monitors cannot flood the log. If the store itself is down, it logs every time.
+     */
+    private function logError(Request $request, Throwable $e): void
+    {
+        try {
+            $store = Cache::store(app(Settings::class)->cacheStore());
+
+            if (! $store->add('lhe:endpoint-error:'.sha1($e::class), true, self::ERROR_LOG_SECONDS)) {
+                return;
+            }
+        } catch (Throwable) {
+            // Throttle store unavailable: log anyway.
+        }
+
+        try {
+            Log::error('[LHE] Health endpoint error', [
+                'exception' => $e,
+                'method' => $request->method(),
+                'path' => $request->path(),
+            ]);
+        } catch (Throwable) {
+            // Logging must not break the error response.
         }
     }
 }

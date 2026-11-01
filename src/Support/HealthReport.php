@@ -65,6 +65,25 @@ final readonly class HealthReport
     }
 
     /**
+     * Like toArray(), but the `checks` and `targets` maps are objects, so they always encode as JSON objects:
+     * `{}` when empty, and numeric names ("0", "1") stay object keys instead of turning the map into a list.
+     *
+     * @param  array<string, mixed>|null  $app  only rendered in detailed mode
+     * @return array<string, mixed>
+     */
+    public function toJsonArray(bool $detailed, ?array $app = null): array
+    {
+        $out = $this->toArray($detailed, $app);
+
+        $out['checks'] = (object) array_map(
+            static fn (CheckReport $c): array => $c->toJsonArray($detailed),
+            $this->checks,
+        );
+
+        return $out;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toCacheArray(): array

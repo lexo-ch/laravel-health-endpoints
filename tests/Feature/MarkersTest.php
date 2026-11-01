@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\View;
+use LEXO\LaravelHealthEndpoints\Http\Middleware\InjectServiceMarkers;
 
 const LHE_H = '<template id="lhe-service-up-header">UP</template>';
 const LHE_F = '<template id="lhe-service-up-footer">UP</template>';
@@ -22,6 +24,8 @@ beforeEach(function () {
         Route::get('/nohead', $html('<body>hi</body>'));
         Route::get('/nobody', $html('<head></head>hi'));
         Route::get('/length', $html('<head></head><body></body>', ['Content-Length' => '25']));
+        Route::get('/etag', $html('<head></head><body></body>', ['ETag' => '"abc"']));
+        Route::get('/etag-untouched', $html('<p>no anchors</p>', ['ETag' => '"abc"']));
         Route::get('/attachment', $html('<head></head><body></body>', ['Content-Disposition' => 'attachment; filename="a.html"']));
         Route::get('/created', $html('<head></head><body></body>', [], 201));
         Route::get('/json', fn () => response()->json(['a' => '<head></head><body></body>']));
@@ -105,4 +109,27 @@ it('updates content length', function () {
     expect($response->headers->get('Content-Length'))->toBe((string) strlen($response->getContent()));
 });
 
-it('does not touch health endpoints', fn () => $this->getJson('/lhe/v1/ping')->assertOk()->assertJsonMissing(['lhe-service-up']));
+it('does not touch health endpoints', function () {
+    $this->getJson('/lhe/v1/ping')->assertOk()->assertJsonMissing(['lhe-service-up']);
+
+    $router = app('router');
+    foreach (['lhe.all', 'lhe.ping', 'lhe.check', 'lhe.fallback'] as $name) {
+        $route = $router->getRoutes()->getByName($name);
+
+        expect($route)->not->toBeNull()
+            ->and($router->gatherRouteMiddleware($route))->not->toContain(InjectServiceMarkers::class)
+            ->and($route->gatherMiddleware())->not->toContain('web');
+    }
+});
+
+it('registers the marker middleware in the web group exactly once', function () {
+    $count = fn (array $groups): int => count(array_keys($groups['web'] ?? [], InjectServiceMarkers::class, true));
+
+    expect($count(app('router')->getMiddlewareGroups()))->toBe(1)
+        ->and($count(app(Kernel::class)->getMiddlewareGroups()))->toBe(1);
+});
+
+it('drops a stale ETag when it modifies the content', function () {
+    $this->get('/etag')->assertSee(LHE_H, false)->assertHeaderMissing('ETag');
+    $this->get('/etag-untouched')->assertHeader('ETag', '"abc"');
+});

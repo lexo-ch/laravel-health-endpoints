@@ -28,6 +28,16 @@ final readonly class CheckReport
     }
 
     /**
+     * Like toArray(), with the `targets` map as an object so it always encodes as a JSON object.
+     *
+     * @return array<string, mixed>
+     */
+    public function toJsonArray(bool $detailed): array
+    {
+        return $detailed ? $this->detailedArray(true, true) : ['status' => $this->status->value];
+    }
+
+    /**
      * Lossless representation (unrounded durations) for the result cache.
      *
      * @return array<string, mixed>
@@ -71,7 +81,7 @@ final readonly class CheckReport
     /**
      * @return array<string, mixed>
      */
-    private function detailedArray(bool $round): array
+    private function detailedArray(bool $round, bool $objectMaps = false): array
     {
         $out = [
             'status' => $this->status->value,
@@ -87,10 +97,11 @@ final readonly class CheckReport
         }
 
         if ($this->targets !== null) {
-            $out['targets'] = array_map(
-                fn (self $t): array => $t->detailedArray($round),
+            $targets = array_map(
+                fn (self $t): array => $t->detailedArray($round, $objectMaps),
                 $this->targets,
             );
+            $out['targets'] = $objectMaps ? (object) $targets : $targets;
         }
 
         return $out;

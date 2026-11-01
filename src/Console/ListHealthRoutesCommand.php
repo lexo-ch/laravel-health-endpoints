@@ -7,6 +7,7 @@ namespace LEXO\LaravelHealthEndpoints\Console;
 use Illuminate\Console\Command;
 use LEXO\LaravelHealthEndpoints\Contracts\HasTargets;
 use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
+use LEXO\LaravelHealthEndpoints\Support\Json;
 use LEXO\LaravelHealthEndpoints\Support\MessageSanitizer;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -61,7 +62,7 @@ final class ListHealthRoutesCommand extends Command
         $warnings = [...$failures, ...$this->warnings($settings)];
 
         if ($this->option('json')) {
-            $this->line((string) json_encode(['routes' => $rows, 'warnings' => $warnings], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
+            $this->line(Json::pretty(['routes' => $rows, 'warnings' => $warnings]));
 
             return self::SUCCESS;
         }
@@ -94,7 +95,7 @@ final class ListHealthRoutesCommand extends Command
 
     private function protection(Settings $settings): string
     {
-        $token = $settings->token() !== null;
+        $token = $settings->token() !== null || $settings->tokenMisconfigured();
         $ips = $settings->allowedIps() !== [];
 
         return match (true) {
@@ -114,6 +115,10 @@ final class ListHealthRoutesCommand extends Command
 
         if (app()->environment('production') && ! $settings->isProtected()) {
             $warnings[] = 'Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS): only minimal status is exposed. Set a token or an IP allowlist.';
+        }
+
+        if ($settings->tokenMisconfigured()) {
+            $warnings[] = 'The configured token is not a string: every request is denied (401). Set LHE_TOKEN to a string.';
         }
 
         $token = $settings->token();

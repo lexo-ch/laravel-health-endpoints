@@ -12,6 +12,7 @@ use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
 use LEXO\LaravelHealthEndpoints\Runner\HealthRunner;
 use LEXO\LaravelHealthEndpoints\Support\CheckReport;
 use LEXO\LaravelHealthEndpoints\Support\HealthReport;
+use LEXO\LaravelHealthEndpoints\Support\Json;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 use LEXO\LaravelHealthEndpoints\Support\Status;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -57,7 +58,7 @@ final class RunHealthChecksCommand extends Command
         }
 
         if ($this->option('json')) {
-            $this->line((string) json_encode($report->toArray(true, $this->appInfo($settings)), JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
+            $this->line(Json::pretty($report->toJsonArray(true, $this->appInfo($settings))));
         } else {
             $this->table(['Check', 'Target', 'Status', 'Duration (ms)', 'Message'], $this->rows($report));
         }

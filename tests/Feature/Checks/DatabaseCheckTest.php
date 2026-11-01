@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use LEXO\LaravelHealthEndpoints\Checks\DatabaseCheck;
+use LEXO\LaravelHealthEndpoints\Support\ProbeConnection;
 
 function lheAssertNoProbeResidue(): void
 {
@@ -110,36 +111,35 @@ it('leaves no probe connection behind and does not touch the app connection', fu
     lheAssertNoProbeResidue();
 });
 
-it('passes the configured timeout into the probe config', function () {
-    config(['laravel-health-endpoints.timeout' => 7]);
+it('passes the configured timeout into the probe connection config', function () {
+    config([
+        'laravel-health-endpoints.timeout' => 7,
+        'database.connections.remote' => ['driver' => 'mysql', 'host' => 'db.invalid', 'database' => 'app', 'options' => [PDO::ATTR_PERSISTENT => false]],
+        'laravel-health-endpoints.database.connections' => 'remote',
+    ]);
+    $captured = lheCaptureMysqlProbeConfig();
 
-    $spy = new class extends DatabaseCheck
-    {
-        public ?int $timeout = null;
-
-        public function probeConfig(array $config, int $timeout): array
-        {
-            $this->timeout = $timeout;
-
-            return parent::probeConfig($config, $timeout);
-        }
-    };
-
-    expect($spy->runTarget('main')->isOk())->toBeTrue()
-        ->and($spy->timeout)->toBe(7);
+    expect((new DatabaseCheck)->runTarget('remote')->isOk())->toBeTrue()
+        ->and($captured->config['name'])->toStartWith('lhe_probe_remote_')
+        ->and($captured->config['options'][PDO::ATTR_TIMEOUT])->toBe(7)
+        ->and($captured->config['options'][PDO::ATTR_PERSISTENT])->toBeFalse()
+        ->and(config('database.connections.remote'))->not->toHaveKey('options.'.PDO::ATTR_TIMEOUT);
+    lheAssertNoProbeResidue();
 });
 
 it('applies the driver-specific connect timeout to the probe config', function () {
-    $check = new DatabaseCheck;
-
     foreach (['mysql', 'mariadb', 'pgsql'] as $driver) {
-        $config = $check->probeConfig(['driver' => $driver, 'options' => [PDO::ATTR_PERSISTENT => true]], 4);
+        $config = ProbeConnection::config(['driver' => $driver, 'options' => [PDO::ATTR_PERSISTENT => true]], 4);
         expect($config['options'][PDO::ATTR_TIMEOUT])->toBe(4)
             ->and($config['options'][PDO::ATTR_PERSISTENT])->toBeTrue()
             ->and($config)->not->toHaveKey('connect_timeout');
     }
 
-    expect($check->probeConfig(['driver' => 'sqlsrv'], 4)['login_timeout'])->toBe(4)
-        ->and($check->probeConfig(['driver' => 'sqlite', 'database' => ':memory:'], 4))
+    expect(ProbeConnection::config(['driver' => 'sqlsrv'], 4)['login_timeout'])->toBe(4)
+        ->and(ProbeConnection::config(['driver' => 'sqlite', 'database' => ':memory:'], 4))
         ->toBe(['driver' => 'sqlite', 'database' => ':memory:']);
+});
+
+it('is final', function () {
+    expect((new ReflectionClass(DatabaseCheck::class))->isFinal())->toBeTrue();
 });

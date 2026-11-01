@@ -15,7 +15,8 @@ use Throwable;
 
 /**
  * Optional shared token (Bearer header preferred, ?token= accepted). Non-string or empty values count as missing;
- * a non-empty Bearer header always wins over the query. The token is never logged or echoed.
+ * a non-empty Bearer header always wins over the query. A non-string token config denies every request (fail closed).
+ * The token is never logged or echoed.
  */
 final class AuthorizeHealthToken
 {
@@ -30,6 +31,11 @@ final class AuthorizeHealthToken
      */
     public function handle(Request $request, Closure $next): Response
     {
+        // Fail closed on an unusable (non-string) token config: deny everything rather than run unprotected.
+        if ($this->settings->tokenMisconfigured()) {
+            return ErrorResponse::make(ErrorResponse::UNAUTHORIZED, 401);
+        }
+
         $token = $this->settings->token();
 
         if ($token === null) {

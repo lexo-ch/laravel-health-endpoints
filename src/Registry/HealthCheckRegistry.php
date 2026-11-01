@@ -9,6 +9,7 @@ use Illuminate\Contracts\Container\Container;
 use LEXO\LaravelHealthEndpoints\Contracts\HasCustomRoute;
 use LEXO\LaravelHealthEndpoints\Contracts\HealthCheck;
 use LEXO\LaravelHealthEndpoints\Exceptions\InvalidHealthCheckException;
+use LEXO\LaravelHealthEndpoints\Support\Settings;
 
 final class HealthCheckRegistry
 {
@@ -98,7 +99,7 @@ final class HealthCheckRegistry
         $candidates = [];
 
         foreach ($this->builtInMap ?? self::builtIn() as [$class, $key]) {
-            if (class_exists($class) && $this->enabled($key, true)) {
+            if (class_exists($class) && $this->settings()->checkEnabled($key)) {
                 $candidates[] = $class;
             }
         }
@@ -111,7 +112,7 @@ final class HealthCheckRegistry
             $candidates[] = $class;
         }
 
-        if ($this->enabled('discover.enabled', true)) {
+        if ($this->settings()->checkEnabled('discover.enabled')) {
             $path = $this->config->get(self::CONFIG.'discover.path');
             $namespace = $this->config->get(self::CONFIG.'discover.namespace');
 
@@ -214,9 +215,9 @@ final class HealthCheckRegistry
         return $check;
     }
 
-    private function enabled(string $key, bool $default): bool
+    private function settings(): Settings
     {
-        return filter_var($this->config->get(self::CONFIG.$key, $default), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? $default;
+        return new Settings($this->config);
     }
 
     private function isAbsolute(string $path): bool

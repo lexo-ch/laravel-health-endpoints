@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use LEXO\LaravelHealthEndpoints\Checks\Check;
 use LEXO\LaravelHealthEndpoints\Facades\LaravelHealthEndpoints;
+use LEXO\LaravelHealthEndpoints\Registry\HealthCheckRegistry;
 use LEXO\LaravelHealthEndpoints\Support\CheckResult;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Checks\FailingFixtureCheck;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Checks\OkFixtureCheck;
@@ -104,4 +105,23 @@ it('bypasses the result cache', function () {
         ->and($data['checks']['flip']['status'])->toBe('fail')
         ->and($data['checks']['flip']['message'])->toBe('now failing')
         ->and($data['cached'])->toBeFalse();
+});
+
+it('prints json maps as objects with readable unicode and slashes', function () {
+    config(['app.name' => 'Café/Ops — x']);
+    app()->forgetInstance(HealthCheckRegistry::class);
+    LaravelHealthEndpoints::clearResolvedInstances();
+    LaravelHealthEndpoints::register(new TwoTargetFixture(['0' => true]));
+
+    Artisan::call('lhe:run', ['--json' => true]);
+    $output = Artisan::output();
+
+    expect($output)->toContain('"name": "Café/Ops — x"')
+        ->and(json_decode($output)->checks->{'two-target-fixture'}->targets)->toBeObject();
+
+    app()->forgetInstance(HealthCheckRegistry::class);
+    LaravelHealthEndpoints::clearResolvedInstances();
+
+    Artisan::call('lhe:run', ['--json' => true]);
+    expect(Artisan::output())->toContain('"checks": {}');
 });

@@ -15,11 +15,26 @@ final class Settings
 
     public function __construct(private readonly Repository $config) {}
 
+    /**
+     * The configured token, or null when none is set. Only string values count; see tokenMisconfigured().
+     */
     public function token(): ?string
     {
-        $token = $this->string('token');
+        $value = $this->config->get(self::PREFIX.'token');
+        $token = is_string($value) ? trim($value) : '';
 
         return $token === '' ? null : $token;
+    }
+
+    /**
+     * A non-empty, non-string token value (array, int, object, ...). Fails closed: the endpoints count as protected
+     * and every request is denied, instead of silently treating the value as "no token".
+     */
+    public function tokenMisconfigured(): bool
+    {
+        $value = $this->config->get(self::PREFIX.'token');
+
+        return ! is_string($value) && ! empty($value);
     }
 
     /**
@@ -32,7 +47,7 @@ final class Settings
 
     public function isProtected(): bool
     {
-        return $this->token() !== null || $this->allowedIps() !== [];
+        return $this->token() !== null || $this->tokenMisconfigured() || $this->allowedIps() !== [];
     }
 
     public function detailed(): bool
@@ -42,6 +57,16 @@ final class Settings
             'never' => false,
             default => $this->isProtected(),
         };
+    }
+
+    /**
+     * Whether a boolean `*.enabled` style flag is on (default true when unset; unrecognised values count as true, null and '' as false).
+     */
+    public function checkEnabled(string $configKey): bool
+    {
+        $value = $this->config->get(self::PREFIX.$configKey, true);
+
+        return filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
     }
 
     public function rateLimit(): int
@@ -116,13 +141,18 @@ final class Settings
     }
 
     /**
-     * Comma-separated config value as a trimmed, de-duplicated list without empties.
+     * Comma-separated string or PHP array as a trimmed, de-duplicated list without empties.
+     * Array entries that are not strings are ignored.
      *
      * @return list<string>
      */
     public function list(string $key): array
     {
-        $parts = array_map(trim(...), explode(',', $this->string($key)));
+        $value = $this->config->get(self::PREFIX.$key);
+
+        $parts = is_array($value)
+            ? array_map(trim(...), array_filter($value, is_string(...)))
+            : array_map(trim(...), explode(',', $this->string($key)));
 
         return array_values(array_unique(array_filter($parts, static fn (string $v): bool => $v !== '')));
     }

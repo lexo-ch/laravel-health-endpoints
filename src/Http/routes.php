@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Route;
 use LEXO\LaravelHealthEndpoints\Http\Controllers\HealthController;
 use LEXO\LaravelHealthEndpoints\Http\Middleware\AuthorizeHealthToken;
@@ -46,7 +47,8 @@ Route::prefix('lhe/v1')
             ->where(['check' => '[a-z][a-z0-9-]*', 'target' => '[A-Za-z0-9_.:-]{1,128}'])
             ->name('check');
 
-        Route::any('{any?}', [HealthController::class, 'fallback'])
+        // Router::$verbs plus uncommon/WebDAV verbs, so they also get the package's JSON 405 after auth.
+        Route::match([...Router::$verbs, ...HealthController::EXTRA_METHODS], '{any?}', [HealthController::class, 'fallback'])
             ->where('any', '.*')
             ->name('fallback');
     });

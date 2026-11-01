@@ -42,39 +42,36 @@ final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
 
     private function registerHeartbeats(Schedule $schedule): void
     {
-        if ($this->checkEnabled('scheduler.enabled')) {
+        $settings = $this->app->make(Settings::class);
+
+        if ($settings->checkEnabled('scheduler.enabled')) {
             $schedule->call([Heartbeats::class, 'touchScheduler'])
                 ->everyMinute()
                 ->name('lhe:scheduler-heartbeat');
         }
 
-        if (! $this->checkEnabled('queue.enabled')) {
+        if (! $settings->checkEnabled('queue.enabled')) {
             return;
         }
 
-        $targets = (new QueueCheck)->targets();
+        $scheduled = [];
 
-        foreach ($targets as $target) {
+        foreach ((new QueueCheck)->targets() as $target) {
             [$connection, $queue] = QueueCheck::parseTarget($target);
             $driver = QueueCheck::driver($connection);
+            $normalized = $connection.':'.$queue;
 
-            if ($driver === null || $driver === 'sync' || $driver === 'null') {
+            // "redis" and "redis:default" share one heartbeat, so they share one scheduled job.
+            if ($driver === null || $driver === 'sync' || $driver === 'null' || isset($scheduled[$normalized])) {
                 continue;
             }
 
-            $normalized = $connection.':'.$queue;
+            $scheduled[$normalized] = true;
 
             $schedule->job(new QueueHeartbeatJob($normalized), $queue, $connection)
                 ->everyMinute()
                 ->name('lhe:queue-heartbeat:'.$normalized);
         }
-    }
-
-    private function checkEnabled(string $key): bool
-    {
-        $value = config('laravel-health-endpoints.'.$key, true);
-
-        return filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
     }
 
     public function boot(): void

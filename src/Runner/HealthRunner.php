@@ -12,12 +12,16 @@ use LEXO\LaravelHealthEndpoints\Support\CheckReport;
 use LEXO\LaravelHealthEndpoints\Support\CheckResult;
 use LEXO\LaravelHealthEndpoints\Support\HealthReport;
 use LEXO\LaravelHealthEndpoints\Support\MessageSanitizer;
+use LEXO\LaravelHealthEndpoints\Support\Settings;
 use LEXO\LaravelHealthEndpoints\Support\Status;
 use Throwable;
 
 final class HealthRunner
 {
-    public function __construct(private readonly StateTracker $tracker) {}
+    public function __construct(
+        private readonly StateTracker $tracker,
+        private readonly Settings $settings,
+    ) {}
 
     /**
      * @throws TargetNotFoundException
@@ -80,6 +84,10 @@ final class HealthRunner
             return $this->report($name, $result, 0.0);
         }
 
+        // The target list is available again: clear a previous check-level failure (recovery log + event once),
+        // so that the next check-level failure is logged again.
+        $this->tracker->record($name, null, CheckResult::ok(), 0.0);
+
         $start = hrtime(true);
         $targets = [];
         $failed = false;
@@ -95,6 +103,14 @@ final class HealthRunner
     }
 
     /**
+     * Socket timeouts bounded by LHE_TIMEOUT while a check or target runs: stream-based socket I/O (predis, phpredis
+     * without own timeouts, file/HTTP streams) and mysqlnd reads on connections opened during the check.
+     */
+    private const TIMEOUT_INI = ['default_socket_timeout', 'mysqlnd.net_read_timeout'];
+
+    /**
+     * Runs one check or target with the socket timeouts above set to LHE_TIMEOUT; previous values are always restored.
+     *
      * @param  callable(): CheckResult  $callback
      * @return array{CheckResult, float, Throwable|null}
      */
@@ -102,12 +118,26 @@ final class HealthRunner
     {
         $start = hrtime(true);
         $exception = null;
+        $timeout = (string) $this->settings->timeout();
+        $previous = [];
 
         try {
+            foreach (self::TIMEOUT_INI as $key) {
+                $value = ini_get($key);
+
+                if ($value !== false && ini_set($key, $timeout) !== false) {
+                    $previous[$key] = $value;
+                }
+            }
+
             $result = $this->sanitize($callback());
         } catch (Throwable $e) {
             $exception = $e;
             $result = CheckResult::fail(MessageSanitizer::fromThrowable($e));
+        } finally {
+            foreach ($previous as $key => $value) {
+                ini_set($key, $value);
+            }
         }
 
         return [$result, $this->elapsed($start), $exception];

@@ -137,7 +137,29 @@ it('405s other methods as JSON', function (string $method, string $uri) {
     ['POST', '/lhe/v1/billing/stripe'],
     ['OPTIONS', '/lhe/v1'],
     ['POST', '/lhe/v1/does/not/exist'],
+    ['TRACE', '/lhe/v1/ping'],
+    ['CONNECT', '/lhe/v1'],
+    ['PROPFIND', '/lhe/v1/ok-fixture'],
+    ['QUERY', '/lhe/v1/two-target-fixture/a'],
+    ['MKCOL', '/lhe/v1/does/not/exist'],
 ]);
+
+it('answers uncommon verbs with the package 405 after auth and with security headers', function (string $method) {
+    $assertHeaders = fn ($response) => $response
+        ->assertHeader('X-Content-Type-Options', 'nosniff')
+        ->assertHeader('X-Robots-Tag', 'noindex, nofollow')
+        ->assertHeader('Cache-Control', 'no-store, private')
+        ->assertHeader('Content-Type', 'application/json');
+
+    $assertHeaders($this->json($method, '/lhe/v1/ping')->assertStatus(405)
+        ->assertExactJson(['status' => 'fail', 'message' => 'Method not allowed']));
+
+    config(['laravel-health-endpoints.token' => 'secret-token']);
+
+    $assertHeaders($this->json($method, '/lhe/v1/ping')->assertUnauthorized()
+        ->assertExactJson(['status' => 'fail', 'message' => 'Unauthorized']));
+    $this->json($method, '/lhe/v1/ping', [], ['Authorization' => 'Bearer secret-token'])->assertStatus(405);
+})->with(['TRACE', 'PROPFIND', 'QUERY']);
 
 it('pings without running checks', function () {
     $check = new class extends Check
@@ -261,6 +283,34 @@ it('logs endpoint errors without the query string', function () {
         && array_keys($context) === ['exception', 'method', 'path'])->once();
 });
 
+it('logs the same endpoint error at most once per minute per exception class', function () {
+    Log::spy();
+    app()->bind(HealthCheckRegistry::class, fn () => throw new RuntimeException('boom'));
+
+    $this->getJson('/lhe/v1')->assertStatus(503);
+    $this->getJson('/lhe/v1/ok-fixture')->assertStatus(503);
+    Log::shouldHaveReceived('error')->with('[LHE] Health endpoint error', Mockery::any())->once();
+
+    app()->bind(HealthCheckRegistry::class, fn () => throw new LogicException('other'));
+    $this->getJson('/lhe/v1')->assertStatus(503);
+    Log::shouldHaveReceived('error')->with('[LHE] Health endpoint error', Mockery::any())->twice();
+
+    $this->travel(61)->seconds();
+    $this->getJson('/lhe/v1')->assertStatus(503);
+    Log::shouldHaveReceived('error')->with('[LHE] Health endpoint error', Mockery::any())->times(3);
+});
+
+it('still logs endpoint errors when the throttle store is unavailable', function () {
+    config(['laravel-health-endpoints.cache_store' => 'missing-store']);
+    Log::spy();
+    app()->bind(HealthCheckRegistry::class, fn () => throw new RuntimeException('boom'));
+
+    $this->getJson('/lhe/v1')->assertStatus(503)->assertExactJson(['status' => 'fail', 'message' => 'Health check error']);
+    $this->getJson('/lhe/v1')->assertStatus(503);
+
+    Log::shouldHaveReceived('error')->with('[LHE] Health endpoint error', Mockery::any())->twice();
+});
+
 it('turns unexpected middleware failures into the package json', function () {
     config(['app.debug' => true]);
     app()->bind(RestrictHealthIps::class, fn () => new class
@@ -318,4 +368,50 @@ it('uses only cacheable controller actions', function () {
         expect($route->getAction('uses'))->toBeString();
         $route->prepareForSerialization();
     }
+});
+
+function lheFreshRegistry(object ...$checks): void
+{
+    app()->forgetInstance(HealthCheckRegistry::class);
+    LaravelHealthEndpoints::clearResolvedInstances();
+
+    foreach ($checks as $check) {
+        LaravelHealthEndpoints::register($check);
+    }
+
+    lheReloadRoutes();
+}
+
+it('encodes an empty checks map as a JSON object', function (string $details) {
+    config(['laravel-health-endpoints.details' => $details]);
+    lheFreshRegistry();
+
+    $response = $this->getJson('/lhe/v1')->assertOk();
+
+    expect($response->getContent())->toContain('"checks":{}')->not->toContain('"checks":[]');
+})->with(['always', 'never']);
+
+it('keeps numeric target names as JSON object keys', function () {
+    config(['laravel-health-endpoints.details' => 'always']);
+    lheFreshRegistry(new TwoTargetFixture(['0' => true, '1' => true]));
+
+    $content = (string) $this->getJson('/lhe/v1')->assertOk()->getContent();
+    $decoded = json_decode($content);
+
+    expect($decoded->checks->{'two-target-fixture'}->targets)->toBeObject()
+        ->and(count(get_object_vars($decoded->checks->{'two-target-fixture'}->targets)))->toBe(2)
+        ->and($content)->toContain('"targets":{"0":{');
+
+    $single = json_decode((string) $this->getJson('/lhe/v1/two-target-fixture/1')->assertOk()->getContent());
+    expect($single->checks->{'two-target-fixture'}->targets)->toBeObject();
+});
+
+it('sends unicode and slashes unescaped but keeps HTML-safe escaping', function () {
+    config(['laravel-health-endpoints.details' => 'always', 'app.name' => 'Café/Ops — <b>']);
+
+    $content = (string) $this->getJson('/lhe/v1/ping')->assertOk()->getContent();
+
+    expect($content)->toContain('"name":"Café/Ops — ')
+        ->not->toContain('<b>')
+        ->and(json_decode($content, true)['app']['name'])->toBe('Café/Ops — <b>');
 });

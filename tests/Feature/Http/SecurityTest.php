@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\RateLimiter;
 use LEXO\LaravelHealthEndpoints\Facades\LaravelHealthEndpoints;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 use LEXO\LaravelHealthEndpoints\Tests\Fixtures\Checks\FailingFixtureCheck;
@@ -62,6 +62,13 @@ it('treats malformed tokens as missing', function (string $uri, array $headers) 
     'prefix only' => ['/lhe/v1?token=secret', []],
 ]);
 
+it('accepts the bearer scheme case-insensitively', function (string $scheme) {
+    config(['laravel-health-endpoints.token' => 'secret-token']);
+
+    $this->getJson('/lhe/v1/ping', ['Authorization' => $scheme.' secret-token'])->assertOk();
+    $this->getJson('/lhe/v1/ping', ['Authorization' => $scheme.' wrong'])->assertUnauthorized();
+})->with(['bearer', 'Bearer', 'BEARER']);
+
 it('accepts the query token when the bearer header is empty', function () {
     config(['laravel-health-endpoints.token' => 'secret-token']);
 
@@ -84,6 +91,22 @@ it('checks the IP allowlist before the token', function () {
     $this->withServerVariables(['REMOTE_ADDR' => '192.168.1.5'])->getJson('/lhe/v1/nope')->assertForbidden();
     $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.5'])->getJson('/lhe/v1/nope')->assertUnauthorized();
 });
+
+it('enforces an IP allowlist configured as a PHP array', function () {
+    config(['laravel-health-endpoints.allowed_ips' => ['10.0.0.1']]);
+
+    $this->withServerVariables(['REMOTE_ADDR' => '1.2.3.4'])->getJson('/lhe/v1/ping')->assertForbidden();
+    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])->getJson('/lhe/v1/ping')->assertOk();
+});
+
+it('denies every request when the token is configured as a non-string', function (mixed $token) {
+    config(['laravel-health-endpoints.token' => $token]);
+
+    foreach (['/lhe/v1', '/lhe/v1/ping', '/lhe/v1/ping?token=x', '/lhe/v1/nope'] as $uri) {
+        $this->getJson($uri, ['Authorization' => 'Bearer x'])->assertUnauthorized()
+            ->assertExactJson(['status' => 'fail', 'message' => 'Unauthorized']);
+    }
+})->with(['array' => [['x']], 'int' => [12345], 'object' => [new stdClass]]);
 
 it('enforces the IP allowlist', function (string $ip, int $status) {
     config(['laravel-health-endpoints.allowed_ips' => '10.0.0.0/8, 2001:db8::/32']);
@@ -141,13 +164,37 @@ it('does not use the token in the rate limiter key', function () {
 
     $this->getJson('/lhe/v1?token=secret-token')->assertOk();
 
-    expect(RateLimiter::attempts('lhe:'.sha1('127.0.0.1')))->toBe(1);
+    expect((new RateLimiter(Cache::store('array')))->attempts('lhe:'.sha1('127.0.0.1')))->toBe(1);
 });
 
 it('fails open when the rate limiter store is unavailable', function () {
-    RateLimiter::shouldReceive('attempt')->andThrow(new RuntimeException('store down'));
+    config(['laravel-health-endpoints.cache_store' => 'missing-store', 'laravel-health-endpoints.rate_limit' => 1]);
 
     $this->getJson('/lhe/v1/ping')->assertOk();
+    $this->getJson('/lhe/v1/ping')->assertOk();
+});
+
+it('rate limits on the package store and never touches the app cache or limiter store', function () {
+    $touched = false;
+    Cache::extend('lhe-tripwire', function () use (&$touched) {
+        $touched = true;
+
+        throw new RuntimeException('app store must not be used');
+    });
+    config([
+        'cache.stores.tripwire' => ['driver' => 'lhe-tripwire'],
+        'cache.default' => 'tripwire',
+        'cache.limiter' => 'tripwire',
+        'laravel-health-endpoints.rate_limit' => 1,
+    ]);
+    app()->forgetInstance(RateLimiter::class);
+    Illuminate\Support\Facades\RateLimiter::clearResolvedInstances();
+
+    $this->getJson('/lhe/v1/ping')->assertOk();
+    $this->getJson('/lhe/v1/ping')->assertStatus(429);
+
+    expect($touched)->toBeFalse()
+        ->and((new RateLimiter(Cache::store('array')))->attempts('lhe:'.sha1('127.0.0.1')))->toBe(1);
 });
 
 it('sends security headers on every response', function (string $method, string $uri, array $config) {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace LEXO\LaravelHealthEndpoints\Http;
 
 use Illuminate\Http\JsonResponse;
+use LEXO\LaravelHealthEndpoints\Support\Json;
 
 /**
  * The package's fixed JSON error body: {"status":"fail","message":"..."}. Messages are constants, never request data.
@@ -28,6 +29,6 @@ final class ErrorResponse
      */
     public static function make(string $message, int $status, array $headers = []): JsonResponse
     {
-        return new JsonResponse(['status' => 'fail', 'message' => $message], $status, $headers);
+        return Json::response(['status' => 'fail', 'message' => $message], $status, $headers);
     }
 }
