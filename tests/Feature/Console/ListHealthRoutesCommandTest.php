@@ -167,3 +167,27 @@ it('does not warn about configured stores', function () {
 
     expect(lheRoutesJson()['warnings'])->toBe([]);
 });
+
+it('shows the output mode', function () {
+    expect(lheRoutesJson()['output'])->toBe('advanced');
+
+    config(['laravel-health-endpoints.output' => 'basic']);
+    expect(lheRoutesJson()['output'])->toBe('basic');
+    $this->artisan('lhe:routes')->expectsOutputToContain('Output: basic (statuses only)')->assertSuccessful();
+
+    config(['laravel-health-endpoints.token' => str_repeat('a', 32)]);
+    $this->artisan('lhe:routes')->expectsOutputToContain('token holders can request advanced output')->assertSuccessful();
+});
+
+it('warns about disabled result caching on public production endpoints', function () {
+    app()['env'] = 'production';
+    config(['laravel-health-endpoints.cache_ttl' => 0]);
+
+    expect(lheRoutesJson()['warnings'])->toContain('LHE_CACHE_TTL=0 on PUBLIC endpoints: every request runs the checks against the database, Redis and storage. Keep result caching on, or set a token or an IP allowlist.');
+
+    config(['laravel-health-endpoints.token' => str_repeat('a', 32)]);
+    expect(implode("\n", lheRoutesJson()['warnings']))->not->toContain('LHE_CACHE_TTL');
+
+    config(['laravel-health-endpoints.token' => '', 'laravel-health-endpoints.cache_ttl' => 10]);
+    expect(implode("\n", lheRoutesJson()['warnings']))->not->toContain('LHE_CACHE_TTL');
+});

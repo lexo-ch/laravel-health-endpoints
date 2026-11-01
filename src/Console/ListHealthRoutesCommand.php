@@ -60,12 +60,19 @@ final class ListHealthRoutesCommand extends Command
         }
 
         $warnings = [...$failures, ...$this->warnings($settings)];
+        $output = $settings->advancedOutput() ? 'advanced' : 'basic';
 
         if ($this->option('json')) {
-            $this->line(Json::pretty(['routes' => $rows, 'warnings' => $warnings]));
+            $this->line(Json::pretty(['output' => $output, 'routes' => $rows, 'warnings' => $warnings]));
 
             return self::SUCCESS;
         }
+
+        $this->line(sprintf(
+            'Output: %s%s',
+            $output,
+            $output === 'basic' ? ' (statuses only)' : ' (messages, meta and timing)',
+        ).($settings->token() !== null ? '; token holders can request advanced output per request' : ''));
 
         $this->table(
             ['Method', 'URL', 'Check', 'Target', 'Protection'],
@@ -115,8 +122,12 @@ final class ListHealthRoutesCommand extends Command
 
         if (app()->environment('production') && ! $settings->isProtected()) {
             $warnings[] = $settings->advancedOutput()
-                ? 'Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS) with LHE_OUTPUT=advanced: messages, server versions and the app version are exposed. Set a token or an IP allowlist, or use LHE_OUTPUT=basic.'
+                ? 'Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS) with LHE_OUTPUT=advanced: messages and server versions are exposed. Set a token or an IP allowlist, or use LHE_OUTPUT=basic.'
                 : 'Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS). Set a token or an IP allowlist.';
+        }
+
+        if (app()->environment('production') && ! $settings->isProtected() && $settings->cacheTtl() === 0) {
+            $warnings[] = 'LHE_CACHE_TTL=0 on PUBLIC endpoints: every request runs the checks against the database, Redis and storage. Keep result caching on, or set a token or an IP allowlist.';
         }
 
         if ($settings->tokenMisconfigured()) {

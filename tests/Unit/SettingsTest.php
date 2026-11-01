@@ -61,38 +61,6 @@ it('uses advanced output only when explicitly set', function (mixed $value, bool
     expect(app(Settings::class)->advancedOutput())->toBe($expected);
 })->with([['advanced', true], [' ADVANCED ', true], ['basic', false], [null, false], ['', false], ['bogus', false], [true, false], [1, false]]);
 
-it('reads the app version from composer.json', function () {
-    lheUseComposerJson('{"name": "acme/app", "version": "1.21.0"}');
-
-    expect(new Settings(app('config')))->appVersion()->toBe('1.21.0');
-});
-
-it('ignores a missing, invalid or unsafe composer.json version', function (?string $contents) {
-    lheUseComposerJson($contents);
-
-    expect(new Settings(app('config')))->appVersion()->toBeNull();
-})->with([
-    'no file' => [null],
-    'no version key' => ['{"name": "acme/app"}'],
-    'broken json' => ['{"version": '],
-    'json list' => ['["1.0.0"]'],
-    'non-string' => ['{"version": 1}'],
-    'empty' => ['{"version": ""}'],
-    'markup' => ['{"version": "<script>alert(1)</script>"}'],
-    'whitespace' => ['{"version": "1.0 beta"}'],
-    'too long' => ['{"version": "'.str_repeat('1', 65).'"}'],
-    'oversized file' => ['{"version": "1.0.0", "x": "'.str_repeat('a', 1_048_576).'"}'],
-]);
-
-it('reads composer.json only once per instance', function () {
-    lheUseComposerJson('{"version": "1.0.0"}');
-    $settings = new Settings(app('config'));
-
-    expect($settings->appVersion())->toBe('1.0.0');
-    file_put_contents(base_path('composer.json'), '{"version": "9.9.9"}');
-    expect($settings->appVersion())->toBe('1.0.0');
-});
-
 it('reads heartbeat max ages with defaults and a minimum of one', function () {
     expect(app(Settings::class))->queueMaxAge()->toBe(5)->schedulerMaxAge()->toBe(2);
 

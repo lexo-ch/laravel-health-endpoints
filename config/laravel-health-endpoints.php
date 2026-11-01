@@ -11,7 +11,7 @@ return [
     'cache_store' => env('LHE_CACHE_STORE', 'file'),
     'heartbeat_store' => env('LHE_HEARTBEAT_STORE'),       // null = app default cache store
 
-    'output' => env('LHE_OUTPUT', 'basic'),                // basic = statuses only, advanced = messages, meta, timing, version
+    'output' => env('LHE_OUTPUT', 'basic'),                // basic = statuses only, advanced = messages, meta, timing
 
     'log' => [
         'channel' => env('LHE_LOG_CHANNEL'),
@@ -50,7 +50,7 @@ return [
     ],
     'debug_mode' => [
         'enabled' => env('LHE_DEBUG_MODE_ENABLED', true),
-        'forbidden_environments' => env('LHE_DEBUG_FORBIDDEN_ENVIRONMENTS', 'production'),
+        'forbidden_environments' => env('LHE_DEBUG_FORBIDDEN_ENVIRONMENTS', 'production,staging'),
     ],
 
     'markers' => [

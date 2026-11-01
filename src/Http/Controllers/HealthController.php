@@ -60,15 +60,7 @@ final class HealthController
 
     public function ping(Request $request): JsonResponse
     {
-        return $this->guard($request, function (): JsonResponse {
-            $body = ['status' => 'ok'];
-
-            if ($this->advanced()) {
-                $body['version'] = app(Settings::class)->appVersion();
-            }
-
-            return Json::response($body);
-        });
+        return $this->guard($request, static fn (): JsonResponse => Json::response(['status' => 'ok']));
     }
 
     public function check(Request $request, string $check, ?string $target = null): JsonResponse

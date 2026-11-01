@@ -41,3 +41,11 @@ it('never fails with an empty list', function () {
     [$ok] = lheDebug(true, 'production', '');
     expect($ok)->toBeTrue();
 });
+
+it('forbids debug mode in production and staging by default', function (string $env, bool $ok) {
+    config(['app.debug' => true]);
+    app()['env'] = $env;
+
+    expect(config('laravel-health-endpoints.debug_mode.forbidden_environments'))->toBe('production,staging')
+        ->and((new DebugModeCheck)->run()->isOk())->toBe($ok);
+})->with([['production', false], ['staging', false], ['local', true], ['testing', true]]);

@@ -50,18 +50,3 @@ function lheCaptureMysqlProbeConfig(): object
 
     return $captured;
 }
-
-/**
- * Points the app base path at a fresh temp directory holding the given composer.json (none when null).
- */
-function lheUseComposerJson(?string $contents): void
-{
-    $dir = sys_get_temp_dir().'/lhe-composer-'.bin2hex(random_bytes(6));
-    mkdir($dir);
-
-    if ($contents !== null) {
-        file_put_contents($dir.'/composer.json', $contents);
-    }
-
-    app()->setBasePath($dir);
-}

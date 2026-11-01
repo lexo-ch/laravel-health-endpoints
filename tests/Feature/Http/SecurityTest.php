@@ -236,7 +236,6 @@ it('sets no cookies and no CORS headers', function (string $uri) {
 })->with(['/lhe/v1', '/lhe/v1/ping', '/lhe/v1/nope']);
 
 it('returns the same output with or without protection', function () {
-    lheUseComposerJson('{"version": "2.4.1"}');
     config(['laravel-health-endpoints.cache_ttl' => 0]);
     LaravelHealthEndpoints::register(new FailingFixtureCheck('db password=hunter2 failed'));
     $stable = fn (array $json): array => Arr::where(
@@ -252,8 +251,7 @@ it('returns the same output with or without protection', function () {
     $protectedPing = $this->getJson('/lhe/v1/ping', ['Authorization' => 'Bearer secret-token'])->assertOk()->json();
 
     expect($stable($public->json()))->toBe($stable($protected->json()))
-        ->and($stable($publicPing))->toBe($stable($protectedPing))
-        ->and($publicPing['version'])->toBe('2.4.1');
+        ->and($publicPing)->toBe($protectedPing)->toBe(['status' => 'ok']);
     $public->assertJsonPath('checks.ok-fixture.message', 'fine')
         ->assertJsonStructure(['status', 'timestamp', 'duration_ms', 'cached', 'checks'])
         ->assertJsonMissingPath('app');
@@ -331,7 +329,6 @@ it('treats a zero rate limit as the default', function () {
 });
 
 it('lets token holders ask for advanced output per request', function (array $headers, string $query) {
-    lheUseComposerJson('{"version": "2.4.1"}');
     config(['laravel-health-endpoints.output' => 'basic', 'laravel-health-endpoints.token' => 'secret-token']);
     $auth = ['Authorization' => 'Bearer secret-token'];
 
@@ -341,8 +338,6 @@ it('lets token holders ask for advanced output per request', function (array $he
     $this->getJson('/lhe/v1/ok-fixture'.$query, $auth + $headers)->assertOk()
         ->assertJsonPath('checks.ok-fixture.message', 'fine')
         ->assertJsonStructure(['status', 'timestamp', 'duration_ms', 'cached', 'checks']);
-    $this->getJson('/lhe/v1/ping'.$query, $auth + $headers)->assertOk()
-        ->assertExactJson(['status' => 'ok', 'version' => '2.4.1']);
 })->with([
     'header' => [['X-LHE-Output' => 'advanced'], ''],
     'header, any case' => [['X-LHE-Output' => ' Advanced '], ''],

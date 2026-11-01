@@ -61,7 +61,7 @@ The service provider is auto-discovered. Nothing else is required, and the packa
 
 - `GET /lhe/v1` runs every enabled check.
 - Pages rendered through the `web` middleware group get the two frontend markers.
-- Without `LHE_TOKEN` or `LHE_ALLOWED_IPS`, the endpoints are public. Protection only controls **who** may call them, never what the response contains. What it contains is set by `LHE_OUTPUT`: `basic` (default) returns statuses only; `advanced` adds messages, meta (server versions, heartbeats), timing and the app version.
+- Without `LHE_TOKEN` or `LHE_ALLOWED_IPS`, the endpoints are public. Protection only controls **who** may call them, never what the response contains. What it contains is set by `LHE_OUTPUT`: `basic` (default) returns statuses only; `advanced` adds messages, meta (server versions, heartbeats) and timing.
 
 > **Turn off what your app does not use.** All eight built-in checks are enabled by default. If your app has no Redis, no cron running `schedule:run`, or no queue worker, the matching check fails, and so does `/lhe/v1`. Set the matching flags right after installing:
 >
@@ -72,6 +72,8 @@ The service provider is auto-discovered. Nothing else is required, and the packa
 > ```
 >
 > See [Quick start](#3-quick-start) for ready-made `.env` blocks.
+
+> **Load balancers, Kubernetes liveness and Docker `HEALTHCHECK` must use `/lhe/v1/ping`, never `/lhe/v1`.** The aggregate returns `503` as soon as **any** check fails, including `migrations` (for a few seconds on every deploy), `scheduler`, `queue` and `debug-mode`. A load balancer polling `/lhe/v1` would then take **every** instance out of rotation at once and turn a stopped worker into a full outage. Send `/lhe/v1` and per-check URLs to your monitoring and alerting instead. See [Monitoring from external systems](#6a-monitoring-from-external-systems).
 
 Check what is exposed:
 
@@ -335,10 +337,12 @@ The body is the same with or without `LHE_TOKEN` / `LHE_ALLOWED_IPS`: protection
 
 `LHE_OUTPUT` decides what a response contains:
 
-| `LHE_OUTPUT` | Reports (`/lhe/v1`, `/lhe/v1/{check}`, `/lhe/v1/{check}/{target}`) | Ping |
-|---|---|---|
-| `basic` (default) | `status`, `checks.{name}.status`, `checks.{name}.targets.{target}.status` | `{"status":"ok"}` |
-| `advanced` | everything in the examples below: adds `timestamp`, `duration_ms`, `cached`, `message` and `meta` (server versions, heartbeats, pending migrations, debug flag) | `{"status":"ok","version":"…"}` |
+| `LHE_OUTPUT` | Reports (`/lhe/v1`, `/lhe/v1/{check}`, `/lhe/v1/{check}/{target}`) |
+|---|---|
+| `basic` (default) | `status`, `checks.{name}.status`, `checks.{name}.targets.{target}.status` |
+| `advanced` | everything in the examples below: adds `timestamp`, `duration_ms`, `cached`, `message` and `meta` (server versions, heartbeats, pending migrations, debug flag) |
+
+Ping always returns `{"status":"ok"}`, in both modes.
 
 Anything other than `advanced` (case-insensitive) means `basic`, so a typo never exposes details. `basic` reveals nothing beyond pass/fail and the configured target names, which makes it safe for public endpoints. Use `advanced` behind `LHE_TOKEN` or `LHE_ALLOWED_IPS`. `php artisan lhe:run --json` always prints the advanced report.
 
@@ -346,7 +350,6 @@ Anything other than `advanced` (case-insensitive) means `basic`, so a typo never
 
 - Only with `LHE_TOKEN` set. Without a token (public, or IP allowlist only), the header and parameter are ignored, so unauthenticated callers can never upgrade the output.
 - Upgrade only: a request cannot switch `LHE_OUTPUT=advanced` down to basic. Unknown values are ignored; `advanced` is case-insensitive. The header wins over the parameter.
-- Applies to ping too (`{"status":"ok","version":"…"}`).
 - Cached results are shared: the mode only changes how the stored report is rendered.
 
 Basic, `GET /lhe/v1` → `503`:
@@ -668,13 +671,10 @@ A second request within `LHE_CACHE_TTL` seconds returns the stored report with `
 
 ### Ping: `GET /lhe/v1/ping` → `200`
 
-`version` (advanced output only) is the `version` key of the app's `composer.json` (read once per process; at most 64 characters of `A-Z a-z 0-9 . + _ -`), else `null`. Basic output returns `{"status":"ok"}`. Check reports never include it.
+Same body in both output modes:
 
 ```json
-{
-  "status": "ok",
-  "version": "2.4.1"
-}
+{"status":"ok"}
 ```
 
 ### Error bodies
@@ -730,7 +730,7 @@ Clients should ignore fields they do not know. New optional fields may be added 
 | Rate limited | `429` | `error` | `{"status":"error","message":"Too many requests"}` + `Retry-After` header | **Monitor misconfiguration**: poll less often or raise `LHE_RATE_LIMIT` |
 | Wrong method | `405` | `error` | `{"status":"error","message":"Method not allowed"}` + `Allow: GET, HEAD` | Use `GET` or `HEAD` |
 | Package error | `503` | `fail` | `{"status":"fail","message":"Health check error"}` | Alert. Check `storage/logs` for `[LHE] Health endpoint error` |
-| Ping | `200` | `ok` | `{"status":"ok","version":"2.4.1"}` | App process is alive (says nothing about DB/Redis) |
+| Ping | `200` | `ok` | `{"status":"ok"}` | App process is alive (says nothing about DB/Redis) |
 | `HEAD` on any endpoint | same as `GET` | (no body) | empty | Use the status code only |
 | No response / timeout / `5xx` other than `503` from a proxy | none / `502` / `504` | (none) | n/a | Alert: app, PHP-FPM or the proxy is down |
 
@@ -739,6 +739,7 @@ Clients should ignore fields they do not know. New optional fields may be added 
 1. **Alert on any non-2xx response or a timeout.** That is enough for most monitors.
 2. Optionally, parse `status` / `checks.*.status` (and `checks.*.targets.*`) to put the failing check name in the alert.
 3. Treat `401`, `403` and `429` (body `"status":"error"`) as **monitor misconfiguration**, not an app outage. Route them to whoever owns the monitor, not to the on-call developer.
+4. **Alert after 2–3 consecutive failures, not the first.** Between "new code is live" and "`php artisan migrate` finished", the `migrations` check fails for a few seconds on every deploy; a restarting worker or a scheduler run that starts late does the same to `queue` and `scheduler`. Most monitors call this a confirmation, retry or "down after N checks" setting. Alternatively, run migrations before switching traffic to the new code, so the window does not exist.
 
 #### Recipes
 
@@ -846,7 +847,7 @@ livenessProbe:
   failureThreshold: 3
 readinessProbe:
   httpGet:
-    path: /lhe/v1
+    path: /lhe/v1/database
     port: 8080
     httpHeaders:
       - name: Authorization
@@ -857,7 +858,7 @@ readinessProbe:
 ```
 
 - Liveness must use `/lhe/v1/ping`. It does not depend on the DB or Redis, so an outage of a backend does not restart your pods.
-- For readiness, `/lhe/v1` fails when **any** check fails, including `debug-mode` or `migrations`. If one shared backend going down should not take every pod out of rotation, point readiness at the checks that matter for serving traffic (e.g. `/lhe/v1/database`).
+- For readiness, use the checks that matter for serving traffic (e.g. `/lhe/v1/database`), not `/lhe/v1`: the aggregate also fails on `migrations`, `scheduler`, `queue` and `debug-mode`, and would take every pod out of rotation at once.
 - Probes come from the kubelet on the node. If `LHE_ALLOWED_IPS` is set, include the node/pod network CIDR. Better still, keep the token in a Secret and reference it in the probe value via your templating tool.
 
 **Docker `HEALTHCHECK`**
@@ -1017,7 +1018,7 @@ All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`,
 
 | Variable | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `LHE_OUTPUT` | `basic`\|`advanced` | `basic` | `basic`: statuses only. `advanced`: adds messages, meta, timing and the ping `version` (see [Basic vs advanced output](#basic-vs-advanced-output)). Case-insensitive; any other value means `basic`. With `LHE_TOKEN` set, a request can also ask for advanced output (`X-LHE-Output: advanced` or `?output=advanced`) | `advanced` |
+| `LHE_OUTPUT` | `basic`\|`advanced` | `basic` | `basic`: statuses only. `advanced`: adds messages, meta and timing (see [Basic vs advanced output](#basic-vs-advanced-output)). Case-insensitive; any other value means `basic`. With `LHE_TOKEN` set, a request can also ask for advanced output (`X-LHE-Output: advanced` or `?output=advanced`) | `advanced` |
 
 **Database check**
 
@@ -1073,7 +1074,7 @@ All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`,
 | Variable | Type | Default | Description | Example |
 |---|---|---|---|---|
 | `LHE_DEBUG_MODE_ENABLED` | bool | `true` | Enable the `debug-mode` check | `false` |
-| `LHE_DEBUG_FORBIDDEN_ENVIRONMENTS` | list | `production` | Environments in which `APP_DEBUG=true` is a failure | `production,staging` |
+| `LHE_DEBUG_FORBIDDEN_ENVIRONMENTS` | list | `production,staging` | Environments in which `APP_DEBUG=true` is a failure | `production,staging,demo` |
 
 **Markers**
 
@@ -1187,8 +1188,8 @@ All built-in checks are enabled by default. Disabling one (`LHE_<NAME>_ENABLED=f
 - **Verifies:** `APP_DEBUG` is not enabled in an environment where it must not be.
 - **Probe:** reads `config('app.debug')` and the environment.
 - **Meta:** `debug` (bool).
-- **Message:** `APP_DEBUG is enabled in production`. Set `APP_DEBUG=false` and re-cache config.
-- **Configuration:** `LHE_DEBUG_FORBIDDEN_ENVIRONMENTS` (default `production`).
+- **Message:** `APP_DEBUG is enabled in production` (or `staging`). Set `APP_DEBUG=false` and re-cache config.
+- **Configuration:** `LHE_DEBUG_FORBIDDEN_ENVIRONMENTS` (default `production,staging`: staging is often publicly reachable too). Environments not listed, such as `local` and `testing`, may run with debug on.
 - **When to disable:** practically never.
 
 ---
@@ -1273,14 +1274,14 @@ LHE_MARKERS_ENABLED=false
 
 **What is never exposed.**
 
-- Responses are the same with or without protection. With the default `LHE_OUTPUT=basic` they contain only statuses and target names. `LHE_OUTPUT=advanced` adds messages, server versions, heartbeats, pending migration names, the debug flag and the app version; on public endpoints anyone can read them.
+- Responses are the same with or without protection. With the default `LHE_OUTPUT=basic` they contain only statuses and target names. `LHE_OUTPUT=advanced` adds messages, server versions, heartbeats, pending migration names and the debug flag; on public endpoints anyone can read them.
 - Messages are always sanitized: first line only, max 255 characters, `user:pass@` in URLs, `password=`/`secret=`/`token=`/`key=`-style values and absolute file paths are removed. Known exceptions are mapped to fixed texts. Stack traces and raw exceptions go to the log only.
 - Package routes never render Laravel's debug error page, even with `APP_DEBUG=true`. Any unexpected error becomes `503` `{"status":"fail","message":"Health check error"}`.
 - No CORS headers, no session, no cookies, no CSRF. Responses carry `Cache-Control: no-store, private`, `X-Content-Type-Options: nosniff`, `X-Robots-Tag: noindex, nofollow`.
 - URL input is only ever compared against registered check names and configured targets. It is never used to build queries, file paths, class names or cache keys.
 - Probes are read-only or self-cleaning: DB `select 1`; cache key `lhe:probe:*` with short TTL, deleted in `finally`; storage file in `.lhe-health/`, deleted in `finally`; queue heartbeat job without payload.
 
-**Known trade-off in public mode.** Without protection, anyone can run the checks and read connection, store and disk names (and, with `LHE_OUTPUT=advanced`, server versions, the app version and failure messages). **Set `LHE_TOKEN` or `LHE_ALLOWED_IPS` in production.**
+**Known trade-off in public mode.** Without protection, anyone can run the checks and read connection, store and disk names (and, with `LHE_OUTPUT=advanced`, server versions and failure messages). Every uncached request also queries the database and Redis and writes to storage. The per-IP rate limit (`LHE_RATE_LIMIT`) and the result cache (`LHE_CACHE_TTL`, 10 s) keep that load small; never set `LHE_CACHE_TTL=0` on public endpoints (`lhe:routes` warns about it in production). **Set `LHE_TOKEN` or `LHE_ALLOWED_IPS` in production.**
 
 **Misconfiguration warnings.** In production with neither token nor allowlist, `php artisan lhe:routes` prints a warning and the package logs this `warning` at most once per 24 hours (flag stored in `LHE_CACHE_STORE`):
 
@@ -1294,7 +1295,8 @@ LHE_MARKERS_ENABLED=false
 - [ ] `LHE_ALLOWED_IPS` limited to your monitoring IPs / internal network where possible.
 - [ ] Trusted proxies configured when behind a load balancer, CDN or reverse proxy.
 - [ ] `LHE_OUTPUT=advanced` only behind a token or IP allowlist.
-- [ ] `LHE_RATE_LIMIT` sized for your monitors (and no higher).
+- [ ] `LHE_RATE_LIMIT` sized for your monitors (and no higher); `LHE_CACHE_TTL` above `0` on public endpoints.
+- [ ] Load balancers and liveness probes on `/lhe/v1/ping`, not `/lhe/v1`.
 - [ ] `php artisan lhe:routes` shows no warnings.
 - [ ] Custom checks put no secrets in `message`, `meta` or target names.
 - [ ] Access logs scrubbed of `token=` if any tool must use the query parameter.
@@ -1709,10 +1711,11 @@ Exit code `0` on success, `1` on any error.
 php artisan lhe:routes [--json]
 ```
 
-Lists every endpoint with method, full URL (based on `APP_URL`), check, target and active protection (`none`, `token`, `ip allowlist`, `token + ip allowlist`). Prints warnings for public production endpoints, a non-string token in the published config (every request is denied), tokens shorter than 32 characters, and an `LHE_CACHE_STORE` or `LHE_HEARTBEAT_STORE` that is not a store in `config/cache.php` (both fail silently at runtime: no rate limiting, result cache or state tracking, respectively failing scheduler/queue checks). Exit code `0` (`1` if a check registration is invalid; the message is printed).
+Prints the active output mode (`LHE_OUTPUT`, and whether token holders can request advanced output per request), then lists every endpoint with method, full URL (based on `APP_URL`), check, target and active protection (`none`, `token`, `ip allowlist`, `token + ip allowlist`). Prints warnings for public production endpoints, `LHE_CACHE_TTL=0` on public production endpoints, a non-string token in the published config (every request is denied), tokens shorter than 32 characters, and an `LHE_CACHE_STORE` or `LHE_HEARTBEAT_STORE` that is not a store in `config/cache.php` (both fail silently at runtime: no rate limiting, result cache or state tracking, respectively failing scheduler/queue checks). Exit code `0` (`1` if a check registration is invalid; the message is printed).
 
 ```console
 $ php artisan lhe:routes
+Output: basic (statuses only)
 +----------+---------------------------------------------------+------------+-----------+------------+
 | Method   | URL                                               | Check      | Target    | Protection |
 +----------+---------------------------------------------------+------------+-----------+------------+
@@ -1743,6 +1746,7 @@ Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS).
 
 ```json
 {
+    "output": "basic",
     "routes": [
         {
             "method": "GET|HEAD",

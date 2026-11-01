@@ -179,10 +179,7 @@ it('pings without running checks', function () {
     LaravelHealthEndpoints::register($check);
     config(['laravel-health-endpoints.cache_ttl' => 10]);
 
-    $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson([
-        'status' => 'ok',
-        'version' => null,
-    ]);
+    $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson(['status' => 'ok']);
     $this->getJson('/lhe/v1/ping')->assertOk();
 
     expect($check->runs)->toBe(0);
@@ -190,14 +187,11 @@ it('pings without running checks', function () {
     expect(array_filter(array_keys($storage), fn (string $k) => str_starts_with($k, 'lhe:result:')))->toBe([]);
 });
 
-it('includes the version in ping only with advanced output', function () {
-    lheUseComposerJson('{"version": "2.4.1"}');
+it('returns only the status from ping in every output mode', function (string $mode) {
+    config(['laravel-health-endpoints.output' => $mode]);
 
-    $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson(['status' => 'ok', 'version' => '2.4.1']);
-
-    config(['laravel-health-endpoints.output' => 'basic']);
     $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson(['status' => 'ok']);
-});
+})->with(['basic', 'advanced']);
 
 it('returns only statuses with basic output', function () {
     config(['laravel-health-endpoints.output' => 'basic']);
@@ -222,9 +216,7 @@ it('defaults to basic output', function () {
     $this->getJson('/lhe/v1/ok-fixture')->assertOk()->assertExactJson(['status' => 'ok', 'checks' => ['ok-fixture' => ['status' => 'ok']]]);
 });
 
-it('never includes the version or app info in check reports', function () {
-    lheUseComposerJson('{"version": "2.4.1"}');
-
+it('never includes a version or app info in check reports', function () {
     foreach (['/lhe/v1', '/lhe/v1/ok-fixture', '/lhe/v1/two-target-fixture/a'] as $url) {
         $this->getJson($url)->assertOk()->assertJsonMissingPath('app')->assertJsonMissingPath('version');
     }
