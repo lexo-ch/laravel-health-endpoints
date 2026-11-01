@@ -11,7 +11,7 @@ return [
     'cache_store' => env('LHE_CACHE_STORE', 'file'),
     'heartbeat_store' => env('LHE_HEARTBEAT_STORE'),       // null = app default cache store
 
-    'show_version' => env('LHE_SHOW_VERSION', true),      // ping only: the "version" key of composer.json
+    'output' => env('LHE_OUTPUT', 'basic'),                // basic = statuses only, advanced = messages, meta, timing, version
 
     'log' => [
         'channel' => env('LHE_LOG_CHANNEL'),

@@ -37,19 +37,23 @@ final readonly class HealthReport
     }
 
     /**
+     * Basic output holds only statuses (overall, per check, per target); advanced adds timing, cache state, messages
+     * and meta.
+     *
      * @return array<string, mixed>
      */
-    public function toArray(): array
+    public function toArray(bool $advanced): array
     {
-        $out = [
-            'status' => $this->status()->value,
-            'timestamp' => $this->timestamp->toIso8601String(),
-            'duration_ms' => (int) round($this->durationMs),
-            'cached' => $this->cached,
-        ];
+        $out = ['status' => $this->status()->value];
+
+        if ($advanced) {
+            $out['timestamp'] = $this->timestamp->toIso8601String();
+            $out['duration_ms'] = (int) round($this->durationMs);
+            $out['cached'] = $this->cached;
+        }
 
         $out['checks'] = array_map(
-            static fn (CheckReport $c): array => $c->toArray(),
+            static fn (CheckReport $c): array => $c->toArray($advanced),
             $this->checks,
         );
 
@@ -62,12 +66,12 @@ final readonly class HealthReport
      *
      * @return array<string, mixed>
      */
-    public function toJsonArray(): array
+    public function toJsonArray(bool $advanced): array
     {
-        $out = $this->toArray();
+        $out = $this->toArray($advanced);
 
         $out['checks'] = (object) array_map(
-            static fn (CheckReport $c): array => $c->toJsonArray(),
+            static fn (CheckReport $c): array => $c->toJsonArray($advanced),
             $this->checks,
         );
 

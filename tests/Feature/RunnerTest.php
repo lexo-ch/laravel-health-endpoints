@@ -42,7 +42,7 @@ it('aggregates to 200 when all pass', fn () => expect(app(HealthRunner::class)->
 
 it('renders output with targets and messages', function () {
     $arr = app(HealthRunner::class)->runAll([new TwoTargetFixture(['a' => true, 'b' => false]), new OkFixtureCheck])
-        ->toArray();
+        ->toArray(true);
     expect(array_keys($arr))->toBe(['status', 'timestamp', 'duration_ms', 'cached', 'checks'])
         ->and($arr['status'])->toBe('fail')->and($arr['cached'])->toBeFalse()->and($arr['duration_ms'])->toBeInt()
         ->and($arr['checks']['two-target-fixture']['targets']['a']['status'])->toBe('ok')
@@ -98,7 +98,7 @@ it('never puts raw exception text into the response', function () {
     Log::spy();
     Log::spy();
     $r = app(HealthRunner::class)->runCheck(new ThrowingFixtureCheck('SQLSTATE host=/var/www/app/secret.php password=hunter2'));
-    expect(json_encode($r->toArray()))->not->toContain('hunter2')->not->toContain('/var/www');
+    expect(json_encode($r->toArray(true)))->not->toContain('hunter2')->not->toContain('/var/www');
     Log::shouldHaveReceived('error')->once()->withArgs(fn ($m, $c) => $c['exception'] instanceof RuntimeException && ! str_contains($m, 'hunter2'));
 });
 

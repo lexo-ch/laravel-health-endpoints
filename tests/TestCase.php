@@ -30,6 +30,9 @@ abstract class TestCase extends Orchestra
         // Per-test package store: rate-limit counters, results and states in the `file` store would leak across runs.
         $app['config']->set('laravel-health-endpoints.cache_store', 'array');
 
+        // Most tests assert messages and meta; basic output (the default) is covered explicitly.
+        $app['config']->set('laravel-health-endpoints.output', 'advanced');
+
         // Built-ins are opt-in per test file so unrelated tests never probe real services.
         foreach (['database', 'redis', 'cache', 'storage', 'queue', 'scheduler', 'migrations', 'debug_mode'] as $check) {
             $app['config']->set("laravel-health-endpoints.{$check}.enabled", false);

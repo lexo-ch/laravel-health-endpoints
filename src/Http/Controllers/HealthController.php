@@ -60,7 +60,7 @@ final class HealthController
             $settings = app(Settings::class);
             $body = ['status' => 'ok'];
 
-            if ($settings->showVersion()) {
+            if ($settings->advancedOutput()) {
                 $body['version'] = $settings->appVersion();
             }
 
@@ -148,7 +148,7 @@ final class HealthController
 
     private function respond(HealthReport $report): JsonResponse
     {
-        return Json::response($report->toJsonArray(), $report->httpStatus());
+        return Json::response($report->toJsonArray(app(Settings::class)->advancedOutput()), $report->httpStatus());
     }
 
     /**

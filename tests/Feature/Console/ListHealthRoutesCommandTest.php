@@ -79,6 +79,15 @@ it('warns when public in production', function () {
     expect(lheRoutesJson()['warnings'][0])->toContain('PUBLIC');
 });
 
+it('mentions advanced output in the public warning only when it is on', function () {
+    app()['env'] = 'production';
+
+    expect(lheRoutesJson()['warnings'][0])->toContain('LHE_OUTPUT=advanced');
+
+    config(['laravel-health-endpoints.output' => 'basic']);
+    expect(lheRoutesJson()['warnings'][0])->toContain('PUBLIC')->not->toContain('LHE_OUTPUT');
+});
+
 it('does not warn public outside production or when protected', function () {
     expect(lheRoutesJson()['warnings'])->toBe([]);
 

@@ -37,7 +37,7 @@ Install the package and your Laravel app exposes health-check endpoints under `/
 - Multi-target checks: probe every configured DB/Redis connection, cache store, disk and queue at once, or one of them (`/lhe/v1/database/reporting`).
 - One call for everything (`/lhe/v1`), one call per check, one call per target, and a liveness endpoint (`/lhe/v1/ping`).
 - Custom checks in minutes: extend one base class, drop the file in `app/HealthChecks`, and it is auto-discovered. A generator command is included.
-- Secure by default: optional token (Bearer header or `?token=`), IP/CIDR allowlist, per-IP rate limiting, identical output with or without protection, sanitized messages, no debug pages, no sessions/cookies/CSRF.
+- Secure by default: optional token (Bearer header or `?token=`), IP/CIDR allowlist, per-IP rate limiting, statuses-only output by default (`LHE_OUTPUT=basic`), identical with or without protection, sanitized messages, no debug pages, no sessions/cookies/CSRF.
 - Logs on state transitions only. A one-hour outage produces one error and one recovery entry, not 60 errors.
 - `HealthCheckFailed` / `HealthCheckRecovered` events for your own alerting.
 - Short result cache (10 s by default) so aggressive polling does not hammer your backends.
@@ -61,7 +61,7 @@ The service provider is auto-discovered. Nothing else is required, and the packa
 
 - `GET /lhe/v1` runs every enabled check.
 - Pages rendered through the `web` middleware group get the two frontend markers.
-- Without `LHE_TOKEN` or `LHE_ALLOWED_IPS`, the endpoints are public. The response is the same either way (messages, versions, connection names); protection only controls **who** may call them.
+- Without `LHE_TOKEN` or `LHE_ALLOWED_IPS`, the endpoints are public. Protection only controls **who** may call them, never what the response contains. What it contains is set by `LHE_OUTPUT`: `basic` (default) returns statuses only; `advanced` adds messages, meta (server versions, heartbeats), timing and the app version.
 
 > **Turn off what your app does not use.** All eight built-in checks are enabled by default. If your app has no Redis, no cron running `schedule:run`, or no queue worker, the matching check fails, and so does `/lhe/v1`. Set the matching flags right after installing:
 >
@@ -151,6 +151,7 @@ Pick the block closest to your setup and paste it into `.env`. Every variable is
 
 ```dotenv
 LHE_TOKEN=4f3c2a1b9e8d7c6b5a49382716f5e4d3c2b1a09f8e7d6c5b4a3928170f6e5d4c   # php artisan lhe:token
+LHE_OUTPUT=advanced   # messages, meta and timing; only behind a token or IP allowlist
 # Shared store for scheduler/queue heartbeats (must be reachable from web, scheduler and worker processes)
 LHE_HEARTBEAT_STORE=redis
 ```
@@ -172,6 +173,7 @@ LHE_TOKEN=4f3c2a1b9e8d7c6b5a49382716f5e4d3c2b1a09f8e7d6c5b4a3928170f6e5d4c
 # Your monitoring server(s) and the internal network (IPv4, IPv6 and CIDR supported)
 LHE_ALLOWED_IPS=203.0.113.10,2001:db8::/32,10.0.0.0/8
 LHE_RATE_LIMIT=30
+LHE_OUTPUT=advanced
 LHE_DB_CONNECTIONS=mysql,reporting
 LHE_HEARTBEAT_STORE=redis
 ```
@@ -325,6 +327,25 @@ If both a non-empty `Authorization: Bearer` header and `?token=` are sent, the h
 Bodies are plain JSON (not JSON:API). The examples below were captured from real requests and pretty-printed with `jq`. On the wire the JSON is compact (`{"status":"ok",...}`, no spaces). Non-ASCII characters and slashes are sent as-is (`—`, `https://…`); only `<`, `>`, `&`, `'` and `"` inside string values are escaped as `\u003C`-style sequences. `checks` and `targets` are always JSON objects (`{}` when empty), even when target names are numeric. Keep that in mind for keyword monitors.
 
 The body is the same with or without `LHE_TOKEN` / `LHE_ALLOWED_IPS`: protection decides who gets a response, never what it contains.
+
+### Basic vs advanced output
+
+`LHE_OUTPUT` decides what a response contains:
+
+| `LHE_OUTPUT` | Reports (`/lhe/v1`, `/lhe/v1/{check}`, `/lhe/v1/{check}/{target}`) | Ping |
+|---|---|---|
+| `basic` (default) | `status`, `checks.{name}.status`, `checks.{name}.targets.{target}.status` | `{"status":"ok"}` |
+| `advanced` | everything in the examples below: adds `timestamp`, `duration_ms`, `cached`, `message` and `meta` (server versions, heartbeats, pending migrations, debug flag) | `{"status":"ok","version":"…"}` |
+
+Anything other than `advanced` (case-insensitive) means `basic`, so a typo never exposes details. `basic` reveals nothing beyond pass/fail and the configured target names, which makes it safe for public endpoints. Use `advanced` behind `LHE_TOKEN` or `LHE_ALLOWED_IPS`. `php artisan lhe:run --json` always prints the advanced report.
+
+Basic, `GET /lhe/v1` → `503`:
+
+```json
+{"status":"fail","checks":{"database":{"status":"ok","targets":{"mysql":{"status":"ok"}}},"redis":{"status":"fail","targets":{"default":{"status":"fail"}}},"scheduler":{"status":"ok"}}}
+```
+
+The examples below show advanced output.
 
 ### Aggregate, all ok: `GET /lhe/v1` → `200`
 
@@ -637,7 +658,7 @@ A second request within `LHE_CACHE_TTL` seconds returns the stored report with `
 
 ### Ping: `GET /lhe/v1/ping` → `200`
 
-`version` is the `version` key of the app's `composer.json` (read once per process; at most 64 characters of `A-Z a-z 0-9 . + _ -`), else `null`. `LHE_SHOW_VERSION=false` removes the field. Check reports never include it.
+`version` (advanced output only) is the `version` key of the app's `composer.json` (read once per process; at most 64 characters of `A-Z a-z 0-9 . + _ -`), else `null`. Basic output returns `{"status":"ok"}`. Check reports never include it.
 
 ```json
 {
@@ -664,19 +685,19 @@ Errors use a fixed body. The message is a constant and never contains request da
 | Field | Type | Always present? | Meaning |
 |---|---|---|---|
 | `status` | `"ok"` \| `"fail"` | yes | Overall result. `fail` if any check in this response failed |
-| `timestamp` | ISO 8601 string | yes | When the checks actually ran (for cached responses, the original run) |
-| `duration_ms` | int | yes | Total run time of all checks in this response |
-| `cached` | bool | yes | `true` if served from the result cache |
+| `timestamp` | ISO 8601 string | advanced | When the checks actually ran (for cached responses, the original run) |
+| `duration_ms` | int | advanced | Total run time of all checks in this response |
+| `cached` | bool | advanced | `true` if served from the result cache |
 | `checks` | object | yes | One entry per check run, keyed by check name |
 | `checks.{name}.status` | `"ok"` \| `"fail"` | yes | Check result. A check with targets is `fail` if any target failed |
-| `checks.{name}.duration_ms` | int | yes | Check run time (rounded) |
-| `checks.{name}.message` | string | only if set | Sanitized message. Checks **without** targets; on checks with targets only when the target list itself failed (e.g. `No targets configured`) |
-| `checks.{name}.meta` | object | only if non-empty | Extra data (checks **without** targets) |
+| `checks.{name}.duration_ms` | int | advanced | Check run time (rounded) |
+| `checks.{name}.message` | string | advanced, only if set | Sanitized message. Checks **without** targets; on checks with targets only when the target list itself failed (e.g. `No targets configured`) |
+| `checks.{name}.meta` | object | advanced, only if non-empty | Extra data (checks **without** targets) |
 | `checks.{name}.targets` | object | checks **with** targets only | One entry per target run, keyed by target name |
 | `checks.{name}.targets.{target}.status` | `"ok"` \| `"fail"` | with `targets` | Target result |
-| `checks.{name}.targets.{target}.duration_ms` | int | with `targets` | Target run time |
-| `checks.{name}.targets.{target}.message` | string | only if set | Sanitized message |
-| `checks.{name}.targets.{target}.meta` | object | only if non-empty | Extra data (e.g. `driver`, `version`) |
+| `checks.{name}.targets.{target}.duration_ms` | int | advanced | Target run time |
+| `checks.{name}.targets.{target}.message` | string | advanced, only if set | Sanitized message |
+| `checks.{name}.targets.{target}.meta` | object | advanced, only if non-empty | Extra data (e.g. `driver`, `version`) |
 | `message` | string | error bodies only | Fixed error text (see above) |
 
 Clients should ignore fields they do not know. New optional fields may be added within `v1`.
@@ -769,7 +790,7 @@ case "$code" in
 esac
 ```
 
-Sample output:
+Sample output (`LHE_OUTPUT=advanced`; with `basic`, failing checks show `-` instead of a message):
 
 ```
 CRITICAL: failing checks:
@@ -986,7 +1007,7 @@ All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`,
 
 | Variable | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `LHE_SHOW_VERSION` | bool | `true` | Include `version` (from the app's `composer.json`) in `/lhe/v1/ping` | `false` |
+| `LHE_OUTPUT` | `basic`\|`advanced` | `basic` | `basic`: statuses only. `advanced`: adds messages, meta, timing and the ping `version` (see [Basic vs advanced output](#basic-vs-advanced-output)). Case-insensitive; any other value means `basic` | `advanced` |
 
 **Database check**
 
@@ -1242,19 +1263,19 @@ LHE_MARKERS_ENABLED=false
 
 **What is never exposed.**
 
-- Responses are the same with or without protection. Without `LHE_TOKEN` or `LHE_ALLOWED_IPS`, anyone can read messages, server versions, the app version (ping) and target names.
+- Responses are the same with or without protection. With the default `LHE_OUTPUT=basic` they contain only statuses and target names. `LHE_OUTPUT=advanced` adds messages, server versions, heartbeats, pending migration names, the debug flag and the app version; on public endpoints anyone can read them.
 - Messages are always sanitized: first line only, max 255 characters, `user:pass@` in URLs, `password=`/`secret=`/`token=`/`key=`-style values and absolute file paths are removed. Known exceptions are mapped to fixed texts. Stack traces and raw exceptions go to the log only.
 - Package routes never render Laravel's debug error page, even with `APP_DEBUG=true`. Any unexpected error becomes `503` `{"status":"fail","message":"Health check error"}`.
 - No CORS headers, no session, no cookies, no CSRF. Responses carry `Cache-Control: no-store, private`, `X-Content-Type-Options: nosniff`, `X-Robots-Tag: noindex, nofollow`.
 - URL input is only ever compared against registered check names and configured targets. It is never used to build queries, file paths, class names or cache keys.
 - Probes are read-only or self-cleaning: DB `select 1`; cache key `lhe:probe:*` with short TTL, deleted in `finally`; storage file in `.lhe-health/`, deleted in `finally`; queue heartbeat job without payload.
 
-**Known trade-off in public mode.** Without protection, anyone can read connection, store and disk names, server versions, the app version and failure messages. **Set `LHE_TOKEN` or `LHE_ALLOWED_IPS` in production.**
+**Known trade-off in public mode.** Without protection, anyone can run the checks and read connection, store and disk names (and, with `LHE_OUTPUT=advanced`, server versions, the app version and failure messages). **Set `LHE_TOKEN` or `LHE_ALLOWED_IPS` in production.**
 
 **Misconfiguration warnings.** In production with neither token nor allowlist, `php artisan lhe:routes` prints a warning and the package logs this `warning` at most once per 24 hours (flag stored in `LHE_CACHE_STORE`):
 
 ```
-[LHE] Health endpoints are public and expose check details. Set LHE_TOKEN or LHE_ALLOWED_IPS.
+[LHE] Health endpoints are public. Set LHE_TOKEN or LHE_ALLOWED_IPS.
 ```
 
 **Hardening checklist**
@@ -1262,6 +1283,7 @@ LHE_MARKERS_ENABLED=false
 - [ ] `LHE_TOKEN` set to a value from `php artisan lhe:token` (≥ 32 chars), sent via `Authorization: Bearer` header.
 - [ ] `LHE_ALLOWED_IPS` limited to your monitoring IPs / internal network where possible.
 - [ ] Trusted proxies configured when behind a load balancer, CDN or reverse proxy.
+- [ ] `LHE_OUTPUT=advanced` only behind a token or IP allowlist.
 - [ ] `LHE_RATE_LIMIT` sized for your monitors (and no higher).
 - [ ] `php artisan lhe:routes` shows no warnings.
 - [ ] Custom checks put no secrets in `message`, `meta` or target names.
@@ -1704,7 +1726,7 @@ $ php artisan lhe:routes
 | GET|HEAD | https://app.example.com/lhe/v1/stripe-api         | stripe-api | -         | none       |
 | GET|HEAD | https://app.example.com/lhe/v1/billing/stripe     | stripe-api | -         | none       |
 +----------+---------------------------------------------------+------------+-----------+------------+
-Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS): check details, versions and connection names are exposed. Set a token or an IP allowlist.
+Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS). Set a token or an IP allowlist.
 ```
 
 `--json` (excerpt; `routes` lists every row as above):
@@ -1830,6 +1852,8 @@ Recommended `phpunit.xml` entries, so results and states from earlier test runs 
 <env name="LHE_CACHE_STORE" value="array"/>
 ```
 
+Responses default to `LHE_OUTPUT=basic` (statuses only). To assert `message` or `meta` over HTTP, set `laravel-health-endpoints.output` to `advanced` in the test.
+
 `tests/Feature/HealthChecks/DiskSpaceCheckTest.php`:
 
 ```php
@@ -1848,6 +1872,8 @@ it('reports disk usage', function () {
 });
 
 it('is exposed over HTTP', function () {
+    config(['laravel-health-endpoints.output' => 'advanced']);
+
     $this->getJson('/lhe/v1/disk-space')
         ->assertOk()
         ->assertJsonPath('status', 'ok')
@@ -1948,6 +1974,10 @@ The package could not run, most often because of an invalid custom check registr
 - Files that fail to load (syntax error, missing parent class) are **skipped silently** during discovery. Run `php -l app/HealthChecks/YourCheck.php`.
 - `LHE_DISCOVER_ENABLED=false` or a different `LHE_DISCOVER_PATH`/`LHE_DISCOVER_NAMESPACE`.
 - Run `php artisan lhe:routes` to see what is registered.
+
+### Responses contain only `status`
+
+That is `LHE_OUTPUT=basic`, the default. Set `LHE_OUTPUT=advanced` for messages, meta, timing and the ping version, ideally together with `LHE_TOKEN` or `LHE_ALLOWED_IPS`. Then run `php artisan config:cache` if config is cached.
 
 ### Results look stale / `"cached": true`
 

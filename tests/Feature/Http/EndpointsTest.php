@@ -190,13 +190,36 @@ it('pings without running checks', function () {
     expect(array_filter(array_keys($storage), fn (string $k) => str_starts_with($k, 'lhe:result:')))->toBe([]);
 });
 
-it('includes the version in ping unless disabled', function () {
+it('includes the version in ping only with advanced output', function () {
     lheUseComposerJson('{"version": "2.4.1"}');
 
     $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson(['status' => 'ok', 'version' => '2.4.1']);
 
-    config(['laravel-health-endpoints.show_version' => false]);
+    config(['laravel-health-endpoints.output' => 'basic']);
     $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson(['status' => 'ok']);
+});
+
+it('returns only statuses with basic output', function () {
+    config(['laravel-health-endpoints.output' => 'basic']);
+    lheFreshRegistry(new OkFixtureCheck, new TwoTargetFixture(['a' => true, 'b' => false]), new FailingFixtureCheck('db password=hunter2 failed'));
+
+    $this->getJson('/lhe/v1')->assertStatus(503)->assertExactJson([
+        'status' => 'fail',
+        'checks' => [
+            'ok-fixture' => ['status' => 'ok'],
+            'two-target-fixture' => ['status' => 'fail', 'targets' => ['a' => ['status' => 'ok'], 'b' => ['status' => 'fail']]],
+            'failing-fixture' => ['status' => 'fail'],
+        ],
+    ]);
+
+    $this->getJson('/lhe/v1/two-target-fixture/a')->assertOk()
+        ->assertExactJson(['status' => 'ok', 'checks' => ['two-target-fixture' => ['status' => 'ok', 'targets' => ['a' => ['status' => 'ok']]]]]);
+});
+
+it('defaults to basic output', function () {
+    config(['laravel-health-endpoints.output' => null]);
+
+    $this->getJson('/lhe/v1/ok-fixture')->assertOk()->assertExactJson(['status' => 'ok', 'checks' => ['ok-fixture' => ['status' => 'ok']]]);
 });
 
 it('never includes the version or app info in check reports', function () {

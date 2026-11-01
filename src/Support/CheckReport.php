@@ -22,9 +22,9 @@ final readonly class CheckReport
     /**
      * @return array<string, mixed>
      */
-    public function toArray(): array
+    public function toArray(bool $advanced): array
     {
-        return $this->render(true);
+        return $advanced ? $this->render(true) : $this->renderBasic();
     }
 
     /**
@@ -32,9 +32,9 @@ final readonly class CheckReport
      *
      * @return array<string, mixed>
      */
-    public function toJsonArray(): array
+    public function toJsonArray(bool $advanced): array
     {
-        return $this->render(true, true);
+        return $advanced ? $this->render(true, true) : $this->renderBasic(true);
     }
 
     /**
@@ -76,6 +76,23 @@ final readonly class CheckReport
             $meta,
             $targets,
         );
+    }
+
+    /**
+     * Status only, plus the status of each target.
+     *
+     * @return array<string, mixed>
+     */
+    private function renderBasic(bool $objectMaps = false): array
+    {
+        $out = ['status' => $this->status->value];
+
+        if ($this->targets !== null) {
+            $targets = array_map(static fn (self $t): array => $t->renderBasic($objectMaps), $this->targets);
+            $out['targets'] = $objectMaps ? (object) $targets : $targets;
+        }
+
+        return $out;
     }
 
     /**

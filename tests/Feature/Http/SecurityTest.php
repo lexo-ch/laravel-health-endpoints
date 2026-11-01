@@ -295,7 +295,7 @@ it('warns once per day in production when public', function () {
     $this->getJson('/lhe/v1/ping')->assertOk();
 
     Log::shouldHaveReceived('warning')
-        ->with('[LHE] Health endpoints are public and expose check details. Set LHE_TOKEN or LHE_ALLOWED_IPS.')
+        ->with('[LHE] Health endpoints are public. Set LHE_TOKEN or LHE_ALLOWED_IPS.')
         ->once();
 
     $this->travel(86401)->seconds();

@@ -82,9 +82,12 @@ final class Settings
         return $this->int('rate_limit', 60, 1);
     }
 
-    public function showVersion(): bool
+    /**
+     * True only for an explicit "advanced"; unset, empty and unknown values mean "basic" (statuses only).
+     */
+    public function advancedOutput(): bool
     {
-        return $this->checkEnabled('show_version');
+        return strtolower($this->string('output')) === 'advanced';
     }
 
     /**
