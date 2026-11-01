@@ -56,9 +56,9 @@ it('requires a positive rate limit', function (mixed $value, int $expected) {
     expect(app(Settings::class)->rateLimit())->toBe($expected);
 })->with([[0, 60], ['0', 60], [-5, 60], ['1', 1], [120, 120]]);
 
-it('reads app info settings', function (mixed $enabled, bool $expected) {
-    config(['laravel-health-endpoints.app_info.enabled' => $enabled]);
-    expect(app(Settings::class)->appInfoEnabled())->toBe($expected);
+it('reads the show version setting', function (mixed $enabled, bool $expected) {
+    config(['laravel-health-endpoints.show_version' => $enabled]);
+    expect(app(Settings::class)->showVersion())->toBe($expected);
 })->with([[true, true], [false, false], ['false', false], ['0', false], ['TRUE', true], [null, true], ['', true], ['bogus', true]]);
 
 it('reads the app version from composer.json', function () {

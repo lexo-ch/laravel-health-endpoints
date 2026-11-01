@@ -56,14 +56,14 @@ it('shows failure messages (trusted CLI)', function () {
     expect(Artisan::output())->toContain('fail')->toContain('disk exploded');
 });
 
-it('outputs the detailed json report with app info', function () {
+it('outputs the json report without app info', function () {
     Artisan::call('lhe:run', ['--json' => true]);
     $data = json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
 
     expect($data['status'])->toBe('fail')
         ->and($data['checks']['ok-fixture']['status'])->toBe('ok')
         ->and($data['checks']['two-target-fixture']['targets']['b']['status'])->toBe('fail')
-        ->and($data)->toHaveKeys(['duration_ms', 'cached', 'app'])
+        ->and($data)->toHaveKeys(['duration_ms', 'cached'])->not->toHaveKey('app')
         ->and($data['cached'])->toBeFalse();
 });
 
@@ -108,15 +108,15 @@ it('bypasses the result cache', function () {
 });
 
 it('prints json maps as objects with readable unicode and slashes', function () {
-    config(['app.name' => 'Café/Ops — x']);
     app()->forgetInstance(HealthCheckRegistry::class);
     LaravelHealthEndpoints::clearResolvedInstances();
     LaravelHealthEndpoints::register(new TwoTargetFixture(['0' => true]));
+    LaravelHealthEndpoints::register(new FailingFixtureCheck('Café/Ops — x'));
 
     Artisan::call('lhe:run', ['--json' => true]);
     $output = Artisan::output();
 
-    expect($output)->toContain('"name": "Café/Ops — x"')
+    expect($output)->toContain('"message": "Café/Ops — x"')
         ->and(json_decode($output)->checks->{'two-target-fixture'}->targets)->toBeObject();
 
     app()->forgetInstance(HealthCheckRegistry::class);

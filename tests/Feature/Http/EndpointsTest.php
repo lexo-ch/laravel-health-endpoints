@@ -179,11 +179,9 @@ it('pings without running checks', function () {
     LaravelHealthEndpoints::register($check);
     config(['laravel-health-endpoints.cache_ttl' => 10]);
 
-    $this->freezeTime();
     $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson([
         'status' => 'ok',
-        'timestamp' => now()->toIso8601String(),
-        'app' => ['name' => 'Laravel', 'environment' => 'testing', 'version' => null],
+        'version' => null,
     ]);
     $this->getJson('/lhe/v1/ping')->assertOk();
 
@@ -192,23 +190,21 @@ it('pings without running checks', function () {
     expect(array_filter(array_keys($storage), fn (string $k) => str_starts_with($k, 'lhe:result:')))->toBe([]);
 });
 
-it('includes app info in ping unless disabled', function () {
+it('includes the version in ping unless disabled', function () {
     lheUseComposerJson('{"version": "2.4.1"}');
-    config(['app.name' => 'Acme']);
 
-    $this->getJson('/lhe/v1/ping')->assertOk()
-        ->assertJsonPath('app', ['name' => 'Acme', 'environment' => 'testing', 'version' => '2.4.1']);
+    $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson(['status' => 'ok', 'version' => '2.4.1']);
 
-    config(['laravel-health-endpoints.app_info.enabled' => false]);
-    $this->getJson('/lhe/v1/ping')->assertOk()->assertJsonMissingPath('app');
+    config(['laravel-health-endpoints.show_version' => false]);
+    $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson(['status' => 'ok']);
 });
 
-it('includes app info in reports unless disabled', function () {
-    config(['app.name' => 'Acme']);
-    $this->getJson('/lhe/v1')->assertOk()->assertJsonPath('app', ['name' => 'Acme', 'environment' => 'testing', 'version' => null]);
+it('never includes the version or app info in check reports', function () {
+    lheUseComposerJson('{"version": "2.4.1"}');
 
-    config(['laravel-health-endpoints.app_info.enabled' => false]);
-    $this->getJson('/lhe/v1')->assertOk()->assertJsonMissingPath('app');
+    foreach (['/lhe/v1', '/lhe/v1/ok-fixture', '/lhe/v1/two-target-fixture/a'] as $url) {
+        $this->getJson($url)->assertOk()->assertJsonMissingPath('app')->assertJsonMissingPath('version');
+    }
 });
 
 it('serves custom routes', function () {
@@ -403,13 +399,13 @@ it('keeps numeric target names as JSON object keys', function () {
 });
 
 it('sends unicode and slashes unescaped but keeps HTML-safe escaping', function () {
-    config(['app.name' => 'Café/Ops — <b>']);
+    lheFreshRegistry(new FailingFixtureCheck('Café/Ops — <b>'));
 
-    $content = (string) $this->getJson('/lhe/v1/ping')->assertOk()->getContent();
+    $content = (string) $this->getJson('/lhe/v1/failing-fixture')->assertStatus(503)->getContent();
 
-    expect($content)->toContain('"name":"Café/Ops — ')
+    expect($content)->toContain('"message":"Café/Ops — ')
         ->not->toContain('<b>')
-        ->and(json_decode($content, true)['app']['name'])->toBe('Café/Ops — <b>');
+        ->and(json_decode($content, true)['checks']['failing-fixture']['message'])->toBe('Café/Ops — <b>');
 });
 
 it('keeps the report encodable when meta holds NAN, INF or invalid UTF-8', function () {

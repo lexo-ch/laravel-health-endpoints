@@ -253,9 +253,10 @@ it('returns the same output with or without protection', function () {
 
     expect($stable($public->json()))->toBe($stable($protected->json()))
         ->and($stable($publicPing))->toBe($stable($protectedPing))
-        ->and($publicPing['app']['version'])->toBe('2.4.1');
+        ->and($publicPing['version'])->toBe('2.4.1');
     $public->assertJsonPath('checks.ok-fixture.message', 'fine')
-        ->assertJsonStructure(['status', 'timestamp', 'duration_ms', 'cached', 'app', 'checks']);
+        ->assertJsonStructure(['status', 'timestamp', 'duration_ms', 'cached', 'checks'])
+        ->assertJsonMissingPath('app');
 });
 
 it('never logs, echoes or caches the token', function () {

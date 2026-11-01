@@ -40,17 +40,16 @@ it('aggregates to 503 when any check fails', fn () => expect(app(HealthRunner::c
 
 it('aggregates to 200 when all pass', fn () => expect(app(HealthRunner::class)->runAll([new OkFixtureCheck])->httpStatus())->toBe(200));
 
-it('renders output with targets, messages and app', function () {
+it('renders output with targets and messages', function () {
     $arr = app(HealthRunner::class)->runAll([new TwoTargetFixture(['a' => true, 'b' => false]), new OkFixtureCheck])
-        ->toArray(['name' => 'X']);
-    expect($arr)->toHaveKeys(['status', 'timestamp', 'duration_ms', 'cached', 'app', 'checks'])
+        ->toArray();
+    expect(array_keys($arr))->toBe(['status', 'timestamp', 'duration_ms', 'cached', 'checks'])
         ->and($arr['status'])->toBe('fail')->and($arr['cached'])->toBeFalse()->and($arr['duration_ms'])->toBeInt()
         ->and($arr['checks']['two-target-fixture']['targets']['a']['status'])->toBe('ok')
         ->and($arr['checks']['two-target-fixture']['targets']['b']['message'])->toBe('Target failed')
         ->and($arr['checks']['two-target-fixture'])->not->toHaveKey('message')
         ->and($arr['checks']['ok-fixture'])->toMatchArray(['message' => 'fine', 'meta' => ['k' => 'v']])
         ->and($arr['checks']['ok-fixture'])->not->toHaveKey('targets');
-    expect(app(HealthRunner::class)->runAll([new OkFixtureCheck])->toArray(null))->not->toHaveKey('app');
 });
 
 it('runs a single target inside the parent shape', function () {

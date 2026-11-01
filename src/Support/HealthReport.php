@@ -37,10 +37,9 @@ final readonly class HealthReport
     }
 
     /**
-     * @param  array<string, mixed>|null  $app
      * @return array<string, mixed>
      */
-    public function toArray(?array $app = null): array
+    public function toArray(): array
     {
         $out = [
             'status' => $this->status()->value,
@@ -48,10 +47,6 @@ final readonly class HealthReport
             'duration_ms' => (int) round($this->durationMs),
             'cached' => $this->cached,
         ];
-
-        if ($app !== null) {
-            $out['app'] = $app;
-        }
 
         $out['checks'] = array_map(
             static fn (CheckReport $c): array => $c->toArray(),
@@ -65,12 +60,11 @@ final readonly class HealthReport
      * Like toArray(), but the `checks` and `targets` maps are objects, so they always encode as JSON objects:
      * `{}` when empty, and numeric names ("0", "1") stay object keys instead of turning the map into a list.
      *
-     * @param  array<string, mixed>|null  $app
      * @return array<string, mixed>
      */
-    public function toJsonArray(?array $app = null): array
+    public function toJsonArray(): array
     {
-        $out = $this->toArray($app);
+        $out = $this->toArray();
 
         $out['checks'] = (object) array_map(
             static fn (CheckReport $c): array => $c->toJsonArray(),

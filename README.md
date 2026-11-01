@@ -336,11 +336,6 @@ Two DB connections (`LHE_DB_CONNECTIONS=sqlite,reporting`), Redis, a `file` cach
   "timestamp": "2026-10-30T15:24:21+00:00",
   "duration_ms": 6,
   "cached": false,
-  "app": {
-    "name": "Acme",
-    "environment": "production",
-    "version": "2.4.1"
-  },
   "checks": {
     "database": {
       "status": "ok",
@@ -457,11 +452,6 @@ Two DB connections (`LHE_DB_CONNECTIONS=sqlite,reporting`), Redis, a `file` cach
   "timestamp": "2026-10-30T15:24:21+00:00",
   "duration_ms": 0,
   "cached": false,
-  "app": {
-    "name": "Acme",
-    "environment": "production",
-    "version": "2.4.1"
-  },
   "checks": {
     "database": {
       "status": "ok",
@@ -497,11 +487,6 @@ Two DB connections (`LHE_DB_CONNECTIONS=sqlite,reporting`), Redis, a `file` cach
   "timestamp": "2026-10-30T15:24:21+00:00",
   "duration_ms": 0,
   "cached": false,
-  "app": {
-    "name": "Acme",
-    "environment": "production",
-    "version": "2.4.1"
-  },
   "checks": {
     "database": {
       "status": "ok",
@@ -529,11 +514,6 @@ Two DB connections (`LHE_DB_CONNECTIONS=sqlite,reporting`), Redis, a `file` cach
   "timestamp": "2026-10-30T15:24:21+00:00",
   "duration_ms": 0,
   "cached": false,
-  "app": {
-    "name": "Acme",
-    "environment": "production",
-    "version": "2.4.1"
-  },
   "checks": {
     "stripe-api": {
       "status": "ok",
@@ -556,11 +536,6 @@ The `reporting` database is missing, Redis is down, and a custom check named `th
   "timestamp": "2026-10-30T15:28:43+00:00",
   "duration_ms": 37,
   "cached": false,
-  "app": {
-    "name": "Acme",
-    "environment": "production",
-    "version": "2.4.1"
-  },
   "checks": {
     "database": {
       "status": "fail",
@@ -624,11 +599,6 @@ The `reporting` database is missing, Redis is down, and a custom check named `th
   "timestamp": "2026-10-30T15:28:43+00:00",
   "duration_ms": 0,
   "cached": false,
-  "app": {
-    "name": "Acme",
-    "environment": "production",
-    "version": "2.4.1"
-  },
   "checks": {
     "database": {
       "status": "fail",
@@ -655,11 +625,6 @@ A second request within `LHE_CACHE_TTL` seconds returns the stored report with `
   "timestamp": "2026-10-30T15:24:21+00:00",
   "duration_ms": 0,
   "cached": true,
-  "app": {
-    "name": "Acme",
-    "environment": "production",
-    "version": "2.4.1"
-  },
   "checks": {
     "stripe-api": {
       "status": "ok",
@@ -672,15 +637,12 @@ A second request within `LHE_CACHE_TTL` seconds returns the stored report with `
 
 ### Ping: `GET /lhe/v1/ping` → `200`
 
+`version` is the `version` key of the app's `composer.json` (read once per process; at most 64 characters of `A-Z a-z 0-9 . + _ -`), else `null`. `LHE_SHOW_VERSION=false` removes the field. Check reports never include it.
+
 ```json
 {
   "status": "ok",
-  "timestamp": "2026-10-30T15:24:21+00:00",
-  "app": {
-    "name": "Acme",
-    "environment": "production",
-    "version": "2.4.1"
-  }
+  "version": "2.4.1"
 }
 ```
 
@@ -705,10 +667,6 @@ Errors use a fixed body. The message is a constant and never contains request da
 | `timestamp` | ISO 8601 string | yes | When the checks actually ran (for cached responses, the original run) |
 | `duration_ms` | int | yes | Total run time of all checks in this response |
 | `cached` | bool | yes | `true` if served from the result cache |
-| `app` | object | unless `LHE_SHOW_APP_INFO=false` | Application info |
-| `app.name` | string | with `app` | `config('app.name')` |
-| `app.environment` | string | with `app` | `app()->environment()` |
-| `app.version` | string \| null | with `app` | `version` key of the app's `composer.json` (read once per process; at most 64 characters of `A-Z a-z 0-9 . + _ -`), else `null` |
 | `checks` | object | yes | One entry per check run, keyed by check name |
 | `checks.{name}.status` | `"ok"` \| `"fail"` | yes | Check result. A check with targets is `fail` if any target failed |
 | `checks.{name}.duration_ms` | int | yes | Check run time (rounded) |
@@ -741,7 +699,7 @@ Clients should ignore fields they do not know. New optional fields may be added 
 | Rate limited | `429` | `fail` | `{"status":"fail","message":"Too many requests"}` + `Retry-After` header | **Monitor misconfiguration**: poll less often or raise `LHE_RATE_LIMIT` |
 | Wrong method | `405` | `fail` | `{"status":"fail","message":"Method not allowed"}` + `Allow: GET, HEAD` | Use `GET` or `HEAD` |
 | Package error | `503` | `fail` | `{"status":"fail","message":"Health check error"}` | Alert. Check `storage/logs` for `[LHE] Health endpoint error` |
-| Ping | `200` | `ok` | `{"status":"ok","timestamp":"…"}` | App process is alive (says nothing about DB/Redis) |
+| Ping | `200` | `ok` | `{"status":"ok","version":"2.4.1"}` | App process is alive (says nothing about DB/Redis) |
 | `HEAD` on any endpoint | same as `GET` | (no body) | empty | Use the status code only |
 | No response / timeout / `5xx` other than `503` from a proxy | none / `502` / `504` | (none) | n/a | Alert: app, PHP-FPM or the proxy is down |
 
@@ -1028,7 +986,7 @@ All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`,
 
 | Variable | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `LHE_SHOW_APP_INFO` | bool | `true` | Include the `app` block (name, environment, `composer.json` version) in responses | `false` |
+| `LHE_SHOW_VERSION` | bool | `true` | Include `version` (from the app's `composer.json`) in `/lhe/v1/ping` | `false` |
 
 **Database check**
 
@@ -1284,7 +1242,7 @@ LHE_MARKERS_ENABLED=false
 
 **What is never exposed.**
 
-- Responses are the same with or without protection. Without `LHE_TOKEN` or `LHE_ALLOWED_IPS`, anyone can read messages, server versions, the `app` block and target names.
+- Responses are the same with or without protection. Without `LHE_TOKEN` or `LHE_ALLOWED_IPS`, anyone can read messages, server versions, the app version (ping) and target names.
 - Messages are always sanitized: first line only, max 255 characters, `user:pass@` in URLs, `password=`/`secret=`/`token=`/`key=`-style values and absolute file paths are removed. Known exceptions are mapped to fixed texts. Stack traces and raw exceptions go to the log only.
 - Package routes never render Laravel's debug error page, even with `APP_DEBUG=true`. Any unexpected error becomes `503` `{"status":"fail","message":"Health check error"}`.
 - No CORS headers, no session, no cookies, no CSRF. Responses carry `Cache-Control: no-store, private`, `X-Content-Type-Options: nosniff`, `X-Robots-Tag: noindex, nofollow`.
@@ -1832,11 +1790,6 @@ $ php artisan lhe:run disk-space --json
     "timestamp": "2026-10-30T15:25:12+00:00",
     "duration_ms": 2,
     "cached": false,
-    "app": {
-        "name": "Acme",
-        "environment": "production",
-        "version": null
-    },
     "checks": {
         "disk-space": {
             "status": "ok",

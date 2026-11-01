@@ -57,11 +57,11 @@ final class HealthController
     public function ping(Request $request): JsonResponse
     {
         return $this->guard($request, function (): JsonResponse {
-            $body = ['status' => 'ok', 'timestamp' => CarbonImmutable::now()->toIso8601String()];
-            $app = $this->appInfo();
+            $settings = app(Settings::class);
+            $body = ['status' => 'ok'];
 
-            if ($app !== null) {
-                $body['app'] = $app;
+            if ($settings->showVersion()) {
+                $body['version'] = $settings->appVersion();
             }
 
             return Json::response($body);
@@ -148,25 +148,7 @@ final class HealthController
 
     private function respond(HealthReport $report): JsonResponse
     {
-        return Json::response($report->toJsonArray($this->appInfo()), $report->httpStatus());
-    }
-
-    /**
-     * @return array{name: mixed, environment: string, version: string|null}|null
-     */
-    private function appInfo(): ?array
-    {
-        $settings = app(Settings::class);
-
-        if (! $settings->appInfoEnabled()) {
-            return null;
-        }
-
-        return [
-            'name' => config('app.name'),
-            'environment' => (string) app()->environment(),
-            'version' => $settings->appVersion(),
-        ];
+        return Json::response($report->toJsonArray(), $report->httpStatus());
     }
 
     /**

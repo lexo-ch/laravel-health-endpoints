@@ -82,9 +82,9 @@ final class Settings
         return $this->int('rate_limit', 60, 1);
     }
 
-    public function appInfoEnabled(): bool
+    public function showVersion(): bool
     {
-        return $this->checkEnabled('app_info.enabled');
+        return $this->checkEnabled('show_version');
     }
 
     /**

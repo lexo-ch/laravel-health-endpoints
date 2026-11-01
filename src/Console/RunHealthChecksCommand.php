@@ -13,18 +13,17 @@ use LEXO\LaravelHealthEndpoints\Runner\HealthRunner;
 use LEXO\LaravelHealthEndpoints\Support\CheckReport;
 use LEXO\LaravelHealthEndpoints\Support\HealthReport;
 use LEXO\LaravelHealthEndpoints\Support\Json;
-use LEXO\LaravelHealthEndpoints\Support\Settings;
 use LEXO\LaravelHealthEndpoints\Support\Status;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'lhe:run', description: 'Run health checks from the CLI (bypasses the result cache)')]
 final class RunHealthChecksCommand extends Command
 {
-    protected $signature = 'lhe:run {check? : Check name} {target? : Target of the check} {--json : Output the detailed JSON report}';
+    protected $signature = 'lhe:run {check? : Check name} {target? : Target of the check} {--json : Output the JSON report}';
 
     protected $description = 'Run health checks from the CLI (bypasses the result cache)';
 
-    public function handle(HealthCheckRegistry $registry, HealthRunner $runner, Settings $settings): int
+    public function handle(HealthCheckRegistry $registry, HealthRunner $runner): int
     {
         $name = $this->argument('check');
         $target = $this->argument('target');
@@ -58,7 +57,7 @@ final class RunHealthChecksCommand extends Command
         }
 
         if ($this->option('json')) {
-            $this->line(Json::pretty($report->toJsonArray($this->appInfo($settings))));
+            $this->line(Json::pretty($report->toJsonArray()));
         } else {
             $this->table(['Check', 'Target', 'Status', 'Duration (ms)', 'Message'], $this->rows($report));
         }
@@ -94,21 +93,5 @@ final class RunHealthChecksCommand extends Command
     private function row(CheckReport $check, string $target, CheckReport $source): array
     {
         return [$check->name, $target, $source->status->value, (int) round($source->durationMs), $source->message ?? ''];
-    }
-
-    /**
-     * @return array{name: mixed, environment: string, version: string|null}|null
-     */
-    private function appInfo(Settings $settings): ?array
-    {
-        if (! $settings->appInfoEnabled()) {
-            return null;
-        }
-
-        return [
-            'name' => config('app.name'),
-            'environment' => (string) app()->environment(),
-            'version' => $settings->appVersion(),
-        ];
     }
 }
