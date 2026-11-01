@@ -23,7 +23,6 @@ beforeEach(function () {
         'laravel-health-endpoints.cache_store' => 'array',
         'laravel-health-endpoints.cache_ttl' => 0,
         'laravel-health-endpoints.discover.enabled' => false,
-        'laravel-health-endpoints.details' => 'always',
         'laravel-health-endpoints.redis.enabled' => true,
         'database.redis.client' => 'predis',
         'database.redis.default' => [

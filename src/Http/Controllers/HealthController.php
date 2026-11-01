@@ -148,9 +148,7 @@ final class HealthController
 
     private function respond(HealthReport $report): JsonResponse
     {
-        $settings = app(Settings::class);
-
-        return Json::response($report->toJsonArray($settings->detailed(), $this->appInfo()), $report->httpStatus());
+        return Json::response($report->toJsonArray($this->appInfo()), $report->httpStatus());
     }
 
     /**
@@ -160,7 +158,7 @@ final class HealthController
     {
         $settings = app(Settings::class);
 
-        if (! $settings->detailed() || ! $settings->appInfoEnabled()) {
+        if (! $settings->appInfoEnabled()) {
             return null;
         }
 

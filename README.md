@@ -37,7 +37,7 @@ Install the package and your Laravel app exposes health-check endpoints under `/
 - Multi-target checks: probe every configured DB/Redis connection, cache store, disk and queue at once, or one of them (`/lhe/v1/database/reporting`).
 - One call for everything (`/lhe/v1`), one call per check, one call per target, and a liveness endpoint (`/lhe/v1/ping`).
 - Custom checks in minutes: extend one base class, drop the file in `app/HealthChecks`, and it is auto-discovered. A generator command is included.
-- Secure by default: optional token (Bearer header or `?token=`), IP/CIDR allowlist, per-IP rate limiting, minimal output when unprotected, sanitized messages, no debug pages, no sessions/cookies/CSRF.
+- Secure by default: optional token (Bearer header or `?token=`), IP/CIDR allowlist, per-IP rate limiting, identical output with or without protection, sanitized messages, no debug pages, no sessions/cookies/CSRF.
 - Logs on state transitions only. A one-hour outage produces one error and one recovery entry, not 60 errors.
 - `HealthCheckFailed` / `HealthCheckRecovered` events for your own alerting.
 - Short result cache (10 s by default) so aggressive polling does not hammer your backends.
@@ -61,7 +61,7 @@ The service provider is auto-discovered. Nothing else is required, and the packa
 
 - `GET /lhe/v1` runs every enabled check.
 - Pages rendered through the `web` middleware group get the two frontend markers.
-- Without `LHE_TOKEN` or `LHE_ALLOWED_IPS`, the endpoints are public but return **minimal** output: only `status`, `timestamp` and per-check `status`, with no messages, versions or connection names.
+- Without `LHE_TOKEN` or `LHE_ALLOWED_IPS`, the endpoints are public. The response is the same either way (messages, versions, connection names); protection only controls **who** may call them.
 
 > **Turn off what your app does not use.** All eight built-in checks are enabled by default. If your app has no Redis, no cron running `schedule:run`, or no queue worker, the matching check fails, and so does `/lhe/v1`. Set the matching flags right after installing:
 >
@@ -151,7 +151,6 @@ Pick the block closest to your setup and paste it into `.env`. Every variable is
 
 ```dotenv
 LHE_TOKEN=4f3c2a1b9e8d7c6b5a49382716f5e4d3c2b1a09f8e7d6c5b4a3928170f6e5d4c   # php artisan lhe:token
-LHE_APP_VERSION=2.4.1
 # Shared store for scheduler/queue heartbeats (must be reachable from web, scheduler and worker processes)
 LHE_HEARTBEAT_STORE=redis
 ```
@@ -232,7 +231,6 @@ curl -i -H "Authorization: Bearer $LHE_TOKEN" https://app.example.com/lhe/v1
    │        └── transition ──► Log error/info + HealthCheckFailed / HealthCheckRecovered event
    ▼
  8. JSON response: 200 (all ok) or 503 (any fail)
-    minimal or detailed body depending on LHE_DETAILS and protection
 ```
 
 - **Auth runs before routing.** Without a valid token, an unknown check returns `401`, not `404`, so callers cannot enumerate checks or targets.
@@ -288,7 +286,7 @@ curl -i -H "Authorization: Bearer $LHE_TOKEN" https://app.example.com/lhe/v1
 # Token via query string (for tools that cannot send headers)
 curl -i "https://app.example.com/lhe/v1?token=$LHE_TOKEN"
 
-# Without token (only when LHE_TOKEN is empty; minimal output unless LHE_ALLOWED_IPS is set)
+# Without token (only when LHE_TOKEN is empty)
 curl -i https://app.example.com/lhe/v1
 
 # Liveness
@@ -326,20 +324,9 @@ If both a non-empty `Authorization: Bearer` header and `?token=` are sent, the h
 
 Bodies are plain JSON (not JSON:API). The examples below were captured from real requests and pretty-printed with `jq`. On the wire the JSON is compact (`{"status":"ok",...}`, no spaces). Non-ASCII characters and slashes are sent as-is (`—`, `https://…`); only `<`, `>`, `&`, `'` and `"` inside string values are escaped as `\u003C`-style sequences. `checks` and `targets` are always JSON objects (`{}` when empty), even when target names are numeric. Keep that in mind for keyword monitors.
 
-### Detailed vs minimal output
+The body is the same with or without `LHE_TOKEN` / `LHE_ALLOWED_IPS`: protection decides who gets a response, never what it contains.
 
-What you see depends on `LHE_DETAILS` (`auto` by default):
-
-| `LHE_DETAILS` | Endpoints protected (token or IP allowlist set) | Endpoints public |
-|---|---|---|
-| `auto` (default) | detailed | **minimal** |
-| `always` | detailed | detailed (explicit opt-in; exposes versions and connection names publicly) |
-| `never` | minimal | minimal |
-
-- **Detailed** adds `duration_ms`, `cached`, `app`, `targets`, `message` and `meta`.
-- **Minimal** contains only `status`, `timestamp` and `checks.{name}.status`. There are no targets, no messages and no `app` block.
-
-### Aggregate, all ok (detailed): `GET /lhe/v1` → `200`
+### Aggregate, all ok: `GET /lhe/v1` → `200`
 
 Two DB connections (`LHE_DB_CONNECTIONS=sqlite,reporting`), Redis, a `file` cache store, a `local` disk, a `redis` queue, plus two custom checks (`disk-space` and `stripe-api`):
 
@@ -462,12 +449,6 @@ Two DB connections (`LHE_DB_CONNECTIONS=sqlite,reporting`), Redis, a `file` cach
 }
 ```
 
-### Aggregate, all ok (minimal, public): `GET /lhe/v1` → `200`
-
-```json
-{"status":"ok","timestamp":"2026-10-30T15:24:10+00:00","checks":{"database":{"status":"ok"},"redis":{"status":"ok"},"cache":{"status":"ok"},"storage":{"status":"ok"},"queue":{"status":"ok"},"scheduler":{"status":"ok"},"migrations":{"status":"ok"},"debug-mode":{"status":"ok"},"disk-space":{"status":"ok"},"stripe-api":{"status":"ok"}}}
-```
-
 ### Single check: `GET /lhe/v1/database` → `200`
 
 ```json
@@ -565,7 +546,7 @@ Two DB connections (`LHE_DB_CONNECTIONS=sqlite,reporting`), Redis, a `file` cach
 
 A check with a custom path is also reachable under its name (`/lhe/v1/stripe-api`). Both URLs share one result-cache entry.
 
-### Failure (detailed): `GET /lhe/v1` → `503`
+### Failure: `GET /lhe/v1` → `503`
 
 The `reporting` database is missing, Redis is down, and a custom check named `throwing` threw `RuntimeException('SQLSTATE[HY000] mysql://app:s3cret@db.internal/app password=hunter2 in /var/www/app/Foo.php:12')`. The credentials, password and file path were stripped from the response, and the raw exception went to the log only. (Cache, storage, queue, scheduler and migrations checks were disabled for this capture.)
 
@@ -635,14 +616,6 @@ The `reporting` database is missing, Redis is down, and a custom check named `th
 }
 ```
 
-### Failure (minimal, public): `GET /lhe/v1` → `503`
-
-The same situation without protection:
-
-```json
-{"status":"fail","timestamp":"2026-10-30T15:28:43+00:00","checks":{"database":{"status":"fail"},"redis":{"status":"fail"},"debug-mode":{"status":"ok"},"disk-space":{"status":"ok"},"throwing":{"status":"fail"}}}
-```
-
 ### Single target failure: `GET /lhe/v1/database/reporting` → `503`
 
 ```json
@@ -672,8 +645,6 @@ The same situation without protection:
 }
 ```
 
-Minimal: `{"status":"fail","timestamp":"2026-10-30T15:28:43+00:00","checks":{"database":{"status":"fail"}}}`
-
 ### Cached response
 
 A second request within `LHE_CACHE_TTL` seconds returns the stored report with `"cached": true` and the **same** HTTP status. `timestamp` and `duration_ms` are those of the run that actually executed the checks:
@@ -701,8 +672,6 @@ A second request within `LHE_CACHE_TTL` seconds returns the stored report with `
 
 ### Ping: `GET /lhe/v1/ping` → `200`
 
-Detailed:
-
 ```json
 {
   "status": "ok",
@@ -714,8 +683,6 @@ Detailed:
   }
 }
 ```
-
-Minimal: `{"status":"ok","timestamp":"2026-10-30T15:27:06+00:00"}`
 
 ### Error bodies
 
@@ -736,18 +703,18 @@ Errors use a fixed body. The message is a constant and never contains request da
 |---|---|---|---|
 | `status` | `"ok"` \| `"fail"` | yes | Overall result. `fail` if any check in this response failed |
 | `timestamp` | ISO 8601 string | yes | When the checks actually ran (for cached responses, the original run) |
-| `duration_ms` | int | detailed only | Total run time of all checks in this response |
-| `cached` | bool | detailed only | `true` if served from the result cache |
-| `app` | object | detailed only, unless `LHE_SHOW_APP_INFO=false` | Application info |
+| `duration_ms` | int | yes | Total run time of all checks in this response |
+| `cached` | bool | yes | `true` if served from the result cache |
+| `app` | object | unless `LHE_SHOW_APP_INFO=false` | Application info |
 | `app.name` | string | with `app` | `config('app.name')` |
 | `app.environment` | string | with `app` | `app()->environment()` |
-| `app.version` | string \| null | with `app` | `LHE_APP_VERSION`, `null` if unset |
+| `app.version` | string \| null | with `app` | `version` key of the app's `composer.json` (read once per process; at most 64 characters of `A-Z a-z 0-9 . + _ -`), else `null` |
 | `checks` | object | yes | One entry per check run, keyed by check name |
 | `checks.{name}.status` | `"ok"` \| `"fail"` | yes | Check result. A check with targets is `fail` if any target failed |
-| `checks.{name}.duration_ms` | int | detailed only | Check run time (rounded) |
-| `checks.{name}.message` | string | detailed, only if set | Sanitized message. Checks **without** targets; on checks with targets only when the target list itself failed (e.g. `No targets configured`) |
-| `checks.{name}.meta` | object | detailed, only if non-empty | Extra data (checks **without** targets) |
-| `checks.{name}.targets` | object | detailed, checks **with** targets only | One entry per target run, keyed by target name |
+| `checks.{name}.duration_ms` | int | yes | Check run time (rounded) |
+| `checks.{name}.message` | string | only if set | Sanitized message. Checks **without** targets; on checks with targets only when the target list itself failed (e.g. `No targets configured`) |
+| `checks.{name}.meta` | object | only if non-empty | Extra data (checks **without** targets) |
+| `checks.{name}.targets` | object | checks **with** targets only | One entry per target run, keyed by target name |
 | `checks.{name}.targets.{target}.status` | `"ok"` \| `"fail"` | with `targets` | Target result |
 | `checks.{name}.targets.{target}.duration_ms` | int | with `targets` | Target run time |
 | `checks.{name}.targets.{target}.message` | string | only if set | Sanitized message |
@@ -766,8 +733,8 @@ Clients should ignore fields they do not know. New optional fields may be added 
 |---|---|---|---|---|
 | All checks ok | `200` | `ok` | `{"status":"ok","timestamp":"…","checks":{"database":{"status":"ok"},…}}` | Nothing: healthy |
 | One check fails | `503` | `fail` | `{"status":"fail",…,"checks":{"redis":{"status":"fail"},"database":{"status":"ok"}}}` | Alert. Optionally read `checks.*.status` to name the failing check |
-| One target fails | `503` | `fail` | detailed: `…"database":{"status":"fail","targets":{"reporting":{"status":"fail","message":"Database not found"},…}}` | Alert. Detailed mode shows which target |
-| Cached response | same as the original (`200` or `503`) | same as the original | `{…,"cached":true,…}` (detailed only) | Treat like a fresh response. Results are at most `LHE_CACHE_TTL` seconds old |
+| One target fails | `503` | `fail` | `…"database":{"status":"fail","targets":{"reporting":{"status":"fail","message":"Database not found"},…}}` | Alert. The body shows which target |
+| Cached response | same as the original (`200` or `503`) | same as the original | `{…,"cached":true,…}` | Treat like a fresh response. Results are at most `LHE_CACHE_TTL` seconds old |
 | Unknown check or target | `404` | `fail` | `{"status":"fail","message":"Not found"}` | Fix the monitor URL (or the check was disabled or renamed) |
 | Missing or wrong token | `401` | `fail` | `{"status":"fail","message":"Unauthorized"}` | **Monitor misconfiguration**, not an outage: fix the token |
 | IP not allowed | `403` | `fail` | `{"status":"fail","message":"Forbidden"}` | **Monitor misconfiguration**: allowlist the monitor IP or fix trusted proxies |
@@ -781,7 +748,7 @@ Clients should ignore fields they do not know. New optional fields may be added 
 #### Decision rule
 
 1. **Alert on any non-2xx response or a timeout.** That is enough for most monitors.
-2. Optionally, parse `status` / `checks.*.status` (and in detailed mode `checks.*.targets.*`) to put the failing check name in the alert.
+2. Optionally, parse `status` / `checks.*.status` (and `checks.*.targets.*`) to put the failing check name in the alert.
 3. Treat `401`, `403` and `429` as **monitor misconfiguration**, not an app outage. Route them to whoever owns the monitor, not to the on-call developer.
 
 #### Recipes
@@ -844,15 +811,13 @@ case "$code" in
 esac
 ```
 
-Sample output (detailed mode):
+Sample output:
 
 ```
 CRITICAL: failing checks:
   redis/default: Connection refused
   scheduler: Last scheduler heartbeat 4 min ago (max 2)
 ```
-
-In minimal mode, failing checks are listed without targets or messages (`  redis: -`).
 
 Crontab, every minute:
 
@@ -1039,7 +1004,6 @@ All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`,
 | `LHE_TOKEN` | string | empty (no token) | Shared token required on every `/lhe/v1*` request (Bearer header or `?token=`). Use ≥ 32 chars: `php artisan lhe:token` | `4f3c…6e5d4c` |
 | `LHE_ALLOWED_IPS` | list | empty (all IPs) | IPv4/IPv6 addresses and CIDR ranges allowed to call the endpoints | `203.0.113.10,10.0.0.0/8,2001:db8::/32` |
 | `LHE_RATE_LIMIT` | int (≥ 1) | `60` | Requests per minute per client IP | `30` |
-| `LHE_DETAILS` | `auto`\|`always`\|`never` | `auto` | Detailed or minimal output (see [Response format](#detailed-vs-minimal-output)). Case-insensitive, unknown values mean `auto` | `never` |
 
 **Caching**
 
@@ -1064,8 +1028,7 @@ All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`,
 
 | Variable | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `LHE_SHOW_APP_INFO` | bool | `true` | Include the `app` block (name, environment, version) in detailed responses | `false` |
-| `LHE_APP_VERSION` | string | none (`null`) | Value of `app.version` | `2.4.1` |
+| `LHE_SHOW_APP_INFO` | bool | `true` | Include the `app` block (name, environment, `composer.json` version) in responses | `false` |
 
 **Database check**
 
@@ -1321,19 +1284,19 @@ LHE_MARKERS_ENABLED=false
 
 **What is never exposed.**
 
-- In public mode (`LHE_DETAILS=auto` with no token and no allowlist) responses contain only `status`, `timestamp` and per-check `status`: no messages, server versions, `app` block or target names.
-- Messages are sanitized even in detailed mode: first line only, max 255 characters, `user:pass@` in URLs, `password=`/`secret=`/`token=`/`key=`-style values and absolute file paths are removed. Known exceptions are mapped to fixed texts. Stack traces and raw exceptions go to the log only.
+- Responses are the same with or without protection. Without `LHE_TOKEN` or `LHE_ALLOWED_IPS`, anyone can read messages, server versions, the `app` block and target names.
+- Messages are always sanitized: first line only, max 255 characters, `user:pass@` in URLs, `password=`/`secret=`/`token=`/`key=`-style values and absolute file paths are removed. Known exceptions are mapped to fixed texts. Stack traces and raw exceptions go to the log only.
 - Package routes never render Laravel's debug error page, even with `APP_DEBUG=true`. Any unexpected error becomes `503` `{"status":"fail","message":"Health check error"}`.
 - No CORS headers, no session, no cookies, no CSRF. Responses carry `Cache-Control: no-store, private`, `X-Content-Type-Options: nosniff`, `X-Robots-Tag: noindex, nofollow`.
 - URL input is only ever compared against registered check names and configured targets. It is never used to build queries, file paths, class names or cache keys.
 - Probes are read-only or self-cleaning: DB `select 1`; cache key `lhe:probe:*` with short TTL, deleted in `finally`; storage file in `.lhe-health/`, deleted in `finally`; queue heartbeat job without payload.
 
-**Known trade-off in public mode.** Per-target URLs (`/lhe/v1/{check}/{target}`) work without protection too. A caller can therefore guess connection, store or disk names: a configured name answers `200`/`503`, an unknown one `404`. The response body never shows configured names, but their existence can be probed. **Set `LHE_TOKEN` or `LHE_ALLOWED_IPS` in production.**
+**Known trade-off in public mode.** Without protection, anyone can read connection, store and disk names, server versions, the app version and failure messages. **Set `LHE_TOKEN` or `LHE_ALLOWED_IPS` in production.**
 
 **Misconfiguration warnings.** In production with neither token nor allowlist, `php artisan lhe:routes` prints a warning and the package logs this `warning` at most once per 24 hours (flag stored in `LHE_CACHE_STORE`):
 
 ```
-[LHE] Health endpoints are public; responses are minimal. Set LHE_TOKEN or LHE_ALLOWED_IPS.
+[LHE] Health endpoints are public and expose check details. Set LHE_TOKEN or LHE_ALLOWED_IPS.
 ```
 
 **Hardening checklist**
@@ -1341,7 +1304,6 @@ LHE_MARKERS_ENABLED=false
 - [ ] `LHE_TOKEN` set to a value from `php artisan lhe:token` (≥ 32 chars), sent via `Authorization: Bearer` header.
 - [ ] `LHE_ALLOWED_IPS` limited to your monitoring IPs / internal network where possible.
 - [ ] Trusted proxies configured when behind a load balancer, CDN or reverse proxy.
-- [ ] `LHE_DETAILS` left at `auto` (or `never`). `always` only if detailed output may be public.
 - [ ] `LHE_RATE_LIMIT` sized for your monitors (and no higher).
 - [ ] `php artisan lhe:routes` shows no warnings.
 - [ ] Custom checks put no secrets in `message`, `meta` or target names.
@@ -1784,7 +1746,7 @@ $ php artisan lhe:routes
 | GET|HEAD | https://app.example.com/lhe/v1/stripe-api         | stripe-api | -         | none       |
 | GET|HEAD | https://app.example.com/lhe/v1/billing/stripe     | stripe-api | -         | none       |
 +----------+---------------------------------------------------+------------+-----------+------------+
-Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS): only minimal status is exposed. Set a token or an IP allowlist.
+Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS): check details, versions and connection names are exposed. Set a token or an IP allowlist.
 ```
 
 `--json` (excerpt; `routes` lists every row as above):
@@ -1819,7 +1781,7 @@ Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS):
 php artisan lhe:run [check] [target] [--json]
 ```
 
-Runs checks from the CLI without HTTP and **without** the result cache. State transitions are still recorded, so failures and recoveries are logged and events fire. `--json` prints the detailed report (regardless of `LHE_DETAILS`).
+Runs checks from the CLI without HTTP and **without** the result cache. State transitions are still recorded, so failures and recoveries are logged and events fire. `--json` prints the same report as the HTTP endpoint.
 
 | Exit code | Meaning |
 |---|---|
@@ -1915,8 +1877,6 @@ Recommended `phpunit.xml` entries, so results and states from earlier test runs 
 <env name="LHE_CACHE_STORE" value="array"/>
 ```
 
-In tests, the endpoints are public (no token), so responses are **minimal** unless you set `details` to `always`.
-
 `tests/Feature/HealthChecks/DiskSpaceCheckTest.php`:
 
 ```php
@@ -1935,8 +1895,6 @@ it('reports disk usage', function () {
 });
 
 it('is exposed over HTTP', function () {
-    config(['laravel-health-endpoints.details' => 'always']);
-
     $this->getJson('/lhe/v1/disk-space')
         ->assertOk()
         ->assertJsonPath('status', 'ok')
@@ -2037,10 +1995,6 @@ The package could not run, most often because of an invalid custom check registr
 - Files that fail to load (syntax error, missing parent class) are **skipped silently** during discovery. Run `php -l app/HealthChecks/YourCheck.php`.
 - `LHE_DISCOVER_ENABLED=false` or a different `LHE_DISCOVER_PATH`/`LHE_DISCOVER_NAMESPACE`.
 - Run `php artisan lhe:routes` to see what is registered.
-
-### Responses contain only `status`
-
-That is minimal mode: the endpoints are public (`LHE_DETAILS=auto` without token/allowlist). Set `LHE_TOKEN` or `LHE_ALLOWED_IPS`, or `LHE_DETAILS=always` if public details are acceptable.
 
 ### Results look stale / `"cached": true`
 

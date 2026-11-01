@@ -22,9 +22,9 @@ final readonly class CheckReport
     /**
      * @return array<string, mixed>
      */
-    public function toArray(bool $detailed): array
+    public function toArray(): array
     {
-        return $detailed ? $this->detailedArray(true) : ['status' => $this->status->value];
+        return $this->render(true);
     }
 
     /**
@@ -32,9 +32,9 @@ final readonly class CheckReport
      *
      * @return array<string, mixed>
      */
-    public function toJsonArray(bool $detailed): array
+    public function toJsonArray(): array
     {
-        return $detailed ? $this->detailedArray(true, true) : ['status' => $this->status->value];
+        return $this->render(true, true);
     }
 
     /**
@@ -44,7 +44,7 @@ final readonly class CheckReport
      */
     public function toCacheArray(): array
     {
-        return $this->detailedArray(false);
+        return $this->render(false);
     }
 
     /**
@@ -81,7 +81,7 @@ final readonly class CheckReport
     /**
      * @return array<string, mixed>
      */
-    private function detailedArray(bool $round, bool $objectMaps = false): array
+    private function render(bool $round, bool $objectMaps = false): array
     {
         $out = [
             'status' => $this->status->value,
@@ -98,7 +98,7 @@ final readonly class CheckReport
 
         if ($this->targets !== null) {
             $targets = array_map(
-                fn (self $t): array => $t->detailedArray($round, $objectMaps),
+                fn (self $t): array => $t->render($round, $objectMaps),
                 $this->targets,
             );
             $out['targets'] = $objectMaps ? (object) $targets : $targets;

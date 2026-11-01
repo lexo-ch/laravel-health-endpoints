@@ -37,27 +37,24 @@ final readonly class HealthReport
     }
 
     /**
-     * @param  array<string, mixed>|null  $app  only rendered in detailed mode
+     * @param  array<string, mixed>|null  $app
      * @return array<string, mixed>
      */
-    public function toArray(bool $detailed, ?array $app = null): array
+    public function toArray(?array $app = null): array
     {
         $out = [
             'status' => $this->status()->value,
             'timestamp' => $this->timestamp->toIso8601String(),
+            'duration_ms' => (int) round($this->durationMs),
+            'cached' => $this->cached,
         ];
 
-        if ($detailed) {
-            $out['duration_ms'] = (int) round($this->durationMs);
-            $out['cached'] = $this->cached;
-
-            if ($app !== null) {
-                $out['app'] = $app;
-            }
+        if ($app !== null) {
+            $out['app'] = $app;
         }
 
         $out['checks'] = array_map(
-            static fn (CheckReport $c): array => $c->toArray($detailed),
+            static fn (CheckReport $c): array => $c->toArray(),
             $this->checks,
         );
 
@@ -68,15 +65,15 @@ final readonly class HealthReport
      * Like toArray(), but the `checks` and `targets` maps are objects, so they always encode as JSON objects:
      * `{}` when empty, and numeric names ("0", "1") stay object keys instead of turning the map into a list.
      *
-     * @param  array<string, mixed>|null  $app  only rendered in detailed mode
+     * @param  array<string, mixed>|null  $app
      * @return array<string, mixed>
      */
-    public function toJsonArray(bool $detailed, ?array $app = null): array
+    public function toJsonArray(?array $app = null): array
     {
-        $out = $this->toArray($detailed, $app);
+        $out = $this->toArray($app);
 
         $out['checks'] = (object) array_map(
-            static fn (CheckReport $c): array => $c->toJsonArray($detailed),
+            static fn (CheckReport $c): array => $c->toJsonArray(),
             $this->checks,
         );
 

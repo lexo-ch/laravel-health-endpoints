@@ -114,7 +114,7 @@ final class ListHealthRoutesCommand extends Command
         $warnings = [];
 
         if (app()->environment('production') && ! $settings->isProtected()) {
-            $warnings[] = 'Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS): only minimal status is exposed. Set a token or an IP allowlist.';
+            $warnings[] = 'Health endpoints are PUBLIC in production (no LHE_TOKEN and no LHE_ALLOWED_IPS): check details, versions and connection names are exposed. Set a token or an IP allowlist.';
         }
 
         if ($settings->tokenMisconfigured()) {

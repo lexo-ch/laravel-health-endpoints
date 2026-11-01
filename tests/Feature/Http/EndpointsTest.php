@@ -59,8 +59,6 @@ it('runs a single check and target', function () {
 });
 
 it('accepts dotted and colon target names when configured', function (string $target) {
-    config(['laravel-health-endpoints.details' => 'always']);
-
     $this->getJson('/lhe/v1/two-target-fixture/'.$target)->assertOk()
         ->assertJsonPath('checks.two-target-fixture.targets', [$target => ['status' => 'ok', 'duration_ms' => 0]]);
 })->with(['mysql.read', 'redis:cache']);
@@ -182,7 +180,11 @@ it('pings without running checks', function () {
     config(['laravel-health-endpoints.cache_ttl' => 10]);
 
     $this->freezeTime();
-    $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson(['status' => 'ok', 'timestamp' => now()->toIso8601String()]);
+    $this->getJson('/lhe/v1/ping')->assertOk()->assertExactJson([
+        'status' => 'ok',
+        'timestamp' => now()->toIso8601String(),
+        'app' => ['name' => 'Laravel', 'environment' => 'testing', 'version' => null],
+    ]);
     $this->getJson('/lhe/v1/ping')->assertOk();
 
     expect($check->runs)->toBe(0);
@@ -190,30 +192,26 @@ it('pings without running checks', function () {
     expect(array_filter(array_keys($storage), fn (string $k) => str_starts_with($k, 'lhe:result:')))->toBe([]);
 });
 
-it('includes app info in ping only when detailed', function () {
-    config(['laravel-health-endpoints.details' => 'always', 'laravel-health-endpoints.app_info.version' => '2.4.1', 'app.name' => 'Acme']);
+it('includes app info in ping unless disabled', function () {
+    lheUseComposerJson('{"version": "2.4.1"}');
+    config(['app.name' => 'Acme']);
 
     $this->getJson('/lhe/v1/ping')->assertOk()
         ->assertJsonPath('app', ['name' => 'Acme', 'environment' => 'testing', 'version' => '2.4.1']);
 
     config(['laravel-health-endpoints.app_info.enabled' => false]);
     $this->getJson('/lhe/v1/ping')->assertOk()->assertJsonMissingPath('app');
-
-    config(['laravel-health-endpoints.app_info.enabled' => true, 'laravel-health-endpoints.details' => 'never']);
-    $this->getJson('/lhe/v1/ping')->assertOk()->assertJsonMissingPath('app');
 });
 
-it('includes app info in reports only when detailed', function () {
-    config(['laravel-health-endpoints.details' => 'always', 'app.name' => 'Acme']);
+it('includes app info in reports unless disabled', function () {
+    config(['app.name' => 'Acme']);
     $this->getJson('/lhe/v1')->assertOk()->assertJsonPath('app', ['name' => 'Acme', 'environment' => 'testing', 'version' => null]);
 
-    config(['laravel-health-endpoints.details' => 'never']);
+    config(['laravel-health-endpoints.app_info.enabled' => false]);
     $this->getJson('/lhe/v1')->assertOk()->assertJsonMissingPath('app');
 });
 
 it('serves custom routes', function () {
-    config(['laravel-health-endpoints.details' => 'always']);
-
     $this->getJson('/lhe/v1/billing/stripe')->assertOk()->assertJsonPath('checks.custom-path.status', 'ok')
         ->assertJsonMissingPath('checks.ok-fixture');
     $this->getJson('/lhe/v1/custom-path')->assertOk()->assertJsonPath('checks.custom-path.status', 'ok');
@@ -229,7 +227,7 @@ it('registers named routes', function () {
 });
 
 it('serves cached reports', function () {
-    config(['laravel-health-endpoints.details' => 'always', 'laravel-health-endpoints.cache_ttl' => 10]);
+    config(['laravel-health-endpoints.cache_ttl' => 10]);
 
     $this->getJson('/lhe/v1')->assertOk()->assertJsonPath('cached', false);
     $this->getJson('/lhe/v1')->assertOk()->assertJsonPath('cached', true);
@@ -239,7 +237,7 @@ it('serves cached reports', function () {
 });
 
 it('keeps the http status for cached failures', function () {
-    config(['laravel-health-endpoints.details' => 'always', 'laravel-health-endpoints.cache_ttl' => 10]);
+    config(['laravel-health-endpoints.cache_ttl' => 10]);
     LaravelHealthEndpoints::register(new FailingFixtureCheck);
 
     $this->getJson('/lhe/v1')->assertStatus(503)->assertJsonPath('cached', false);
@@ -382,17 +380,15 @@ function lheFreshRegistry(object ...$checks): void
     lheReloadRoutes();
 }
 
-it('encodes an empty checks map as a JSON object', function (string $details) {
-    config(['laravel-health-endpoints.details' => $details]);
+it('encodes an empty checks map as a JSON object', function () {
     lheFreshRegistry();
 
     $response = $this->getJson('/lhe/v1')->assertOk();
 
     expect($response->getContent())->toContain('"checks":{}')->not->toContain('"checks":[]');
-})->with(['always', 'never']);
+});
 
 it('keeps numeric target names as JSON object keys', function () {
-    config(['laravel-health-endpoints.details' => 'always']);
     lheFreshRegistry(new TwoTargetFixture(['0' => true, '1' => true]));
 
     $content = (string) $this->getJson('/lhe/v1')->assertOk()->getContent();
@@ -407,7 +403,7 @@ it('keeps numeric target names as JSON object keys', function () {
 });
 
 it('sends unicode and slashes unescaped but keeps HTML-safe escaping', function () {
-    config(['laravel-health-endpoints.details' => 'always', 'app.name' => 'Café/Ops — <b>']);
+    config(['app.name' => 'Café/Ops — <b>']);
 
     $content = (string) $this->getJson('/lhe/v1/ping')->assertOk()->getContent();
 
@@ -417,7 +413,6 @@ it('sends unicode and slashes unescaped but keeps HTML-safe escaping', function 
 });
 
 it('keeps the report encodable when meta holds NAN, INF or invalid UTF-8', function () {
-    config(['laravel-health-endpoints.details' => 'always']);
     lheFreshRegistry(new class extends Check
     {
         protected ?string $name = 'odd-meta';
@@ -440,7 +435,6 @@ it('keeps the report encodable when meta holds NAN, INF or invalid UTF-8', funct
 });
 
 it('keeps the report encodable when a target name is invalid UTF-8', function () {
-    config(['laravel-health-endpoints.details' => 'always']);
     lheFreshRegistry(new TwoTargetFixture(["ok\xB1" => true]));
 
     $response = $this->getJson('/lhe/v1')->assertOk();

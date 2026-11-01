@@ -6,15 +6,13 @@ return [
     'token' => env('LHE_TOKEN', ''),
     'rate_limit' => env('LHE_RATE_LIMIT', 60),              // requests per minute per IP
     'allowed_ips' => env('LHE_ALLOWED_IPS', ''),            // comma-separated IPs/CIDRs, empty = public
-    'details' => env('LHE_DETAILS', 'auto'),               // auto|always|never
     'timeout' => env('LHE_TIMEOUT', 3),
     'cache_ttl' => env('LHE_CACHE_TTL', 10),               // seconds, 0 = off
     'cache_store' => env('LHE_CACHE_STORE', 'file'),
     'heartbeat_store' => env('LHE_HEARTBEAT_STORE'),       // null = app default cache store
 
     'app_info' => [
-        'enabled' => env('LHE_SHOW_APP_INFO', true),
-        'version' => env('LHE_APP_VERSION'),
+        'enabled' => env('LHE_SHOW_APP_INFO', true), // name, environment and the "version" key of composer.json
     ],
 
     'log' => [

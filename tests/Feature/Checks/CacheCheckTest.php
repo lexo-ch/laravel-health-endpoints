@@ -10,7 +10,6 @@ beforeEach(function () {
         'laravel-health-endpoints.cache_store' => 'array',
         'laravel-health-endpoints.cache_ttl' => 0,
         'laravel-health-endpoints.discover.enabled' => false,
-        'laravel-health-endpoints.details' => 'always',
         'laravel-health-endpoints.cache.enabled' => true,
     ]);
     Cache::store('array')->flush();

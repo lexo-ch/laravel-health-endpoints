@@ -51,11 +51,6 @@ it('detects protection', function () {
     expect(app(Settings::class)->isProtected())->toBeTrue()->and(app(Settings::class)->token())->toBe('x');
 });
 
-it('resolves details mode', function (string $mode, ?string $token, bool $expected) {
-    config(['laravel-health-endpoints.details' => $mode, 'laravel-health-endpoints.token' => $token ?? '']);
-    expect(app(Settings::class)->detailed())->toBe($expected);
-})->with([['auto', null, false], ['AUTO', 'secret', true], ['never', 'secret', false], ['always', null, true], ['bogus', null, false]]);
-
 it('requires a positive rate limit', function (mixed $value, int $expected) {
     config(['laravel-health-endpoints.rate_limit' => $value]);
     expect(app(Settings::class)->rateLimit())->toBe($expected);
@@ -66,11 +61,36 @@ it('reads app info settings', function (mixed $enabled, bool $expected) {
     expect(app(Settings::class)->appInfoEnabled())->toBe($expected);
 })->with([[true, true], [false, false], ['false', false], ['0', false], ['TRUE', true], [null, true], ['', true], ['bogus', true]]);
 
-it('reads the app version', function () {
-    config(['laravel-health-endpoints.app_info.version' => ' 2.4.1 ']);
-    expect(app(Settings::class)->appVersion())->toBe('2.4.1');
-    config(['laravel-health-endpoints.app_info.version' => null]);
-    expect(app(Settings::class)->appVersion())->toBeNull();
+it('reads the app version from composer.json', function () {
+    lheUseComposerJson('{"name": "acme/app", "version": "1.21.0"}');
+
+    expect(new Settings(app('config')))->appVersion()->toBe('1.21.0');
+});
+
+it('ignores a missing, invalid or unsafe composer.json version', function (?string $contents) {
+    lheUseComposerJson($contents);
+
+    expect(new Settings(app('config')))->appVersion()->toBeNull();
+})->with([
+    'no file' => [null],
+    'no version key' => ['{"name": "acme/app"}'],
+    'broken json' => ['{"version": '],
+    'json list' => ['["1.0.0"]'],
+    'non-string' => ['{"version": 1}'],
+    'empty' => ['{"version": ""}'],
+    'markup' => ['{"version": "<script>alert(1)</script>"}'],
+    'whitespace' => ['{"version": "1.0 beta"}'],
+    'too long' => ['{"version": "'.str_repeat('1', 65).'"}'],
+    'oversized file' => ['{"version": "1.0.0", "x": "'.str_repeat('a', 1_048_576).'"}'],
+]);
+
+it('reads composer.json only once per instance', function () {
+    lheUseComposerJson('{"version": "1.0.0"}');
+    $settings = new Settings(app('config'));
+
+    expect($settings->appVersion())->toBe('1.0.0');
+    file_put_contents(base_path('composer.json'), '{"version": "9.9.9"}');
+    expect($settings->appVersion())->toBe('1.0.0');
 });
 
 it('reads heartbeat max ages with defaults and a minimum of one', function () {
@@ -95,8 +115,7 @@ it('fails closed on a non-string token', function (mixed $token) {
 
     expect($s->token())->toBeNull()
         ->and($s->tokenMisconfigured())->toBeTrue()
-        ->and($s->isProtected())->toBeTrue()
-        ->and($s->detailed())->toBeTrue();
+        ->and($s->isProtected())->toBeTrue();
 })->with([
     'array' => [['x']],
     'int' => [12345],

@@ -77,7 +77,7 @@ final class AuthorizeHealthToken
 
         try {
             if (Cache::store($this->settings->cacheStore())->add(self::WARNING_KEY, true, self::WARNING_SECONDS)) {
-                Log::warning('[LHE] Health endpoints are public; responses are minimal. Set LHE_TOKEN or LHE_ALLOWED_IPS.');
+                Log::warning('[LHE] Health endpoints are public and expose check details. Set LHE_TOKEN or LHE_ALLOWED_IPS.');
             }
         } catch (Throwable) {
             // A missing or broken store must never break the endpoint.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
@@ -234,28 +235,26 @@ it('sets no cookies and no CORS headers', function (string $uri) {
     expect($response->headers->getCookies())->toBe([]);
 })->with(['/lhe/v1', '/lhe/v1/ping', '/lhe/v1/nope']);
 
-it('returns minimal output when unprotected', function () {
-    config(['laravel-health-endpoints.app_info.version' => '2.4.1']);
+it('returns the same output with or without protection', function () {
+    lheUseComposerJson('{"version": "2.4.1"}');
+    config(['laravel-health-endpoints.cache_ttl' => 0]);
     LaravelHealthEndpoints::register(new FailingFixtureCheck('db password=hunter2 failed'));
+    $stable = fn (array $json): array => Arr::where(
+        Arr::dot($json),
+        fn (mixed $v, string $k): bool => $k !== 'timestamp' && ! str_ends_with($k, 'duration_ms'),
+    );
 
-    $response = $this->getJson('/lhe/v1')->assertStatus(503);
+    $public = $this->getJson('/lhe/v1')->assertStatus(503)->assertDontSee('hunter2');
+    $publicPing = $this->getJson('/lhe/v1/ping')->assertOk()->json();
 
-    $json = $response->json();
-    expect(array_keys($json))->toBe(['status', 'timestamp', 'checks'])
-        ->and($json['checks']['ok-fixture'])->toBe(['status' => 'ok'])
-        ->and($json['checks']['failing-fixture'])->toBe(['status' => 'fail'])
-        ->and(array_keys($json['checks']['two-target-fixture']))->toBe(['status']);
-    $response->assertDontSee('hunter2')->assertDontSee('2.4.1')->assertDontSee('fine');
-
-    expect(array_keys($this->getJson('/lhe/v1/ping')->json()))->toBe(['status', 'timestamp']);
-});
-
-it('returns detailed output when protected', function () {
     config(['laravel-health-endpoints.token' => 'secret-token']);
+    $protected = $this->getJson('/lhe/v1', ['Authorization' => 'Bearer secret-token'])->assertStatus(503);
+    $protectedPing = $this->getJson('/lhe/v1/ping', ['Authorization' => 'Bearer secret-token'])->assertOk()->json();
 
-    $this->getJson('/lhe/v1', ['Authorization' => 'Bearer secret-token'])->assertOk()
-        ->assertJsonPath('checks.ok-fixture.message', 'fine')
-        ->assertJsonPath('checks.ok-fixture.meta', ['k' => 'v'])
+    expect($stable($public->json()))->toBe($stable($protected->json()))
+        ->and($stable($publicPing))->toBe($stable($protectedPing))
+        ->and($publicPing['app']['version'])->toBe('2.4.1');
+    $public->assertJsonPath('checks.ok-fixture.message', 'fine')
         ->assertJsonStructure(['status', 'timestamp', 'duration_ms', 'cached', 'app', 'checks']);
 });
 
@@ -295,7 +294,7 @@ it('warns once per day in production when public', function () {
     $this->getJson('/lhe/v1/ping')->assertOk();
 
     Log::shouldHaveReceived('warning')
-        ->with('[LHE] Health endpoints are public; responses are minimal. Set LHE_TOKEN or LHE_ALLOWED_IPS.')
+        ->with('[LHE] Health endpoints are public and expose check details. Set LHE_TOKEN or LHE_ALLOWED_IPS.')
         ->once();
 
     $this->travel(86401)->seconds();

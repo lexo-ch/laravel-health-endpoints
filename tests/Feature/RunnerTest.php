@@ -40,15 +40,9 @@ it('aggregates to 503 when any check fails', fn () => expect(app(HealthRunner::c
 
 it('aggregates to 200 when all pass', fn () => expect(app(HealthRunner::class)->runAll([new OkFixtureCheck])->httpStatus())->toBe(200));
 
-it('renders minimal output without details', function () {
-    $arr = app(HealthRunner::class)->runAll([new TwoTargetFixture(['a' => false])])->toArray(false, ['name' => 'X']);
-    expect($arr)->toHaveKeys(['status', 'timestamp', 'checks'])->not->toHaveKeys(['app', 'duration_ms', 'cached'])
-        ->and($arr['checks']['two-target-fixture'])->toBe(['status' => 'fail']);
-});
-
-it('renders detailed output with targets, messages and app', function () {
+it('renders output with targets, messages and app', function () {
     $arr = app(HealthRunner::class)->runAll([new TwoTargetFixture(['a' => true, 'b' => false]), new OkFixtureCheck])
-        ->toArray(true, ['name' => 'X']);
+        ->toArray(['name' => 'X']);
     expect($arr)->toHaveKeys(['status', 'timestamp', 'duration_ms', 'cached', 'app', 'checks'])
         ->and($arr['status'])->toBe('fail')->and($arr['cached'])->toBeFalse()->and($arr['duration_ms'])->toBeInt()
         ->and($arr['checks']['two-target-fixture']['targets']['a']['status'])->toBe('ok')
@@ -56,7 +50,7 @@ it('renders detailed output with targets, messages and app', function () {
         ->and($arr['checks']['two-target-fixture'])->not->toHaveKey('message')
         ->and($arr['checks']['ok-fixture'])->toMatchArray(['message' => 'fine', 'meta' => ['k' => 'v']])
         ->and($arr['checks']['ok-fixture'])->not->toHaveKey('targets');
-    expect(app(HealthRunner::class)->runAll([new OkFixtureCheck])->toArray(true, null))->not->toHaveKey('app');
+    expect(app(HealthRunner::class)->runAll([new OkFixtureCheck])->toArray(null))->not->toHaveKey('app');
 });
 
 it('runs a single target inside the parent shape', function () {
@@ -105,7 +99,7 @@ it('never puts raw exception text into the response', function () {
     Log::spy();
     Log::spy();
     $r = app(HealthRunner::class)->runCheck(new ThrowingFixtureCheck('SQLSTATE host=/var/www/app/secret.php password=hunter2'));
-    expect(json_encode($r->toArray(true)))->not->toContain('hunter2')->not->toContain('/var/www');
+    expect(json_encode($r->toArray()))->not->toContain('hunter2')->not->toContain('/var/www');
     Log::shouldHaveReceived('error')->once()->withArgs(fn ($m, $c) => $c['exception'] instanceof RuntimeException && ! str_contains($m, 'hunter2'));
 });
 

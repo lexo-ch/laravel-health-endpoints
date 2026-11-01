@@ -24,7 +24,7 @@ We will acknowledge your report, keep you informed while we investigate, and coo
 
 In scope: this package's code, its default configuration and its documented behaviour. Examples: token or IP allowlist bypass, information disclosure in health responses or logs, injection through check names, targets or markers, denial of service through the health endpoints.
 
-Out of scope: vulnerabilities in Laravel, PHP or third-party packages (report those upstream), and issues that require an already compromised server or a deliberately insecure configuration (for example `LHE_DETAILS=always` on public endpoints).
+Out of scope: vulnerabilities in Laravel, PHP or third-party packages (report those upstream), and issues that require an already compromised server or a deliberately insecure configuration (for example production endpoints without `LHE_TOKEN` or `LHE_ALLOWED_IPS`).
 
 ## Hardening
 

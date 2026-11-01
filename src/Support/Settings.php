@@ -7,11 +7,19 @@ namespace LEXO\LaravelHealthEndpoints\Support;
 use Illuminate\Contracts\Config\Repository;
 
 /**
- * Typed, forgiving access to package config. Reads config on every call.
+ * Typed, forgiving access to package config. Reads config on every call; the composer.json version once.
  */
 final class Settings
 {
     private const PREFIX = 'laravel-health-endpoints.';
+
+    private const COMPOSER_JSON_MAX_BYTES = 1_048_576;
+
+    private const VERSION_PATTERN = '/\A[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}\z/';
+
+    private bool $appVersionResolved = false;
+
+    private ?string $appVersion = null;
 
     public function __construct(private readonly Repository $config) {}
 
@@ -50,15 +58,6 @@ final class Settings
         return $this->token() !== null || $this->tokenMisconfigured() || $this->allowedIps() !== [];
     }
 
-    public function detailed(): bool
-    {
-        return match (strtolower($this->string('details'))) {
-            'always' => true,
-            'never' => false,
-            default => $this->isProtected(),
-        };
-    }
-
     /**
      * Whether a boolean `*.enabled` style flag is on. Unset, null, empty and unrecognised values all mean the default
      * (true), so a blank or mistyped env var never silently disables a check.
@@ -88,9 +87,29 @@ final class Settings
         return $this->checkEnabled('app_info.enabled');
     }
 
+    /**
+     * The "version" key of the app's composer.json. Read once per instance (the binding is a singleton). Unreadable,
+     * oversized, invalid or unsafe values yield null.
+     */
     public function appVersion(): ?string
     {
-        return $this->nullableString('app_info.version');
+        if ($this->appVersionResolved) {
+            return $this->appVersion;
+        }
+
+        $this->appVersionResolved = true;
+        $path = base_path('composer.json');
+
+        if (! is_file($path) || ! is_readable($path) || (int) filesize($path) > self::COMPOSER_JSON_MAX_BYTES) {
+            return null;
+        }
+
+        $data = json_decode((string) file_get_contents($path), true, 64);
+        $version = is_array($data) ? ($data['version'] ?? null) : null;
+
+        return $this->appVersion = is_string($version) && preg_match(self::VERSION_PATTERN, $version) === 1
+            ? $version
+            : null;
     }
 
     public function timeout(): int

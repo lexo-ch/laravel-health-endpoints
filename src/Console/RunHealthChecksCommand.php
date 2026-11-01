@@ -58,7 +58,7 @@ final class RunHealthChecksCommand extends Command
         }
 
         if ($this->option('json')) {
-            $this->line(Json::pretty($report->toJsonArray(true, $this->appInfo($settings))));
+            $this->line(Json::pretty($report->toJsonArray($this->appInfo($settings))));
         } else {
             $this->table(['Check', 'Target', 'Status', 'Duration (ms)', 'Message'], $this->rows($report));
         }
