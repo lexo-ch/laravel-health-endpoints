@@ -42,6 +42,10 @@ final class HealthController
 
     private const ERROR_LOG_SECONDS = 60;
 
+    private const OUTPUT_HEADER = 'X-LHE-Output';
+
+    private const OUTPUT_QUERY = 'output';
+
     public function all(Request $request): JsonResponse
     {
         return $this->guard($request, function (): JsonResponse {
@@ -57,11 +61,10 @@ final class HealthController
     public function ping(Request $request): JsonResponse
     {
         return $this->guard($request, function (): JsonResponse {
-            $settings = app(Settings::class);
             $body = ['status' => 'ok'];
 
-            if ($settings->advancedOutput()) {
-                $body['version'] = $settings->appVersion();
+            if ($this->advanced()) {
+                $body['version'] = app(Settings::class)->appVersion();
             }
 
             return Json::response($body);
@@ -148,7 +151,30 @@ final class HealthController
 
     private function respond(HealthReport $report): JsonResponse
     {
-        return Json::response($report->toJsonArray(app(Settings::class)->advancedOutput()), $report->httpStatus());
+        return Json::response($report->toJsonArray($this->advanced()), $report->httpStatus());
+    }
+
+    /**
+     * Advanced when configured, or when a token is configured (so this request was authenticated by it) and the
+     * request asks for it via the X-LHE-Output header or ?output=. Requests can only upgrade, never downgrade, and
+     * without a token (public or IP allowlist only) the request has no say.
+     */
+    private function advanced(): bool
+    {
+        $settings = app(Settings::class);
+
+        if ($settings->advancedOutput()) {
+            return true;
+        }
+
+        if ($settings->token() === null) {
+            return false;
+        }
+
+        $request = request();
+        $requested = $request->headers->get(self::OUTPUT_HEADER) ?? $request->query(self::OUTPUT_QUERY);
+
+        return is_string($requested) && strtolower(trim($requested)) === 'advanced';
     }
 
     /**

@@ -288,6 +288,9 @@ curl -i -H "Authorization: Bearer $LHE_TOKEN" https://app.example.com/lhe/v1
 # Token via query string (for tools that cannot send headers)
 curl -i "https://app.example.com/lhe/v1?token=$LHE_TOKEN"
 
+# Advanced output for this request only (LHE_TOKEN must be set; see "Basic vs advanced output")
+curl -i -H "Authorization: Bearer $LHE_TOKEN" -H "X-LHE-Output: advanced" https://app.example.com/lhe/v1
+
 # Without token (only when LHE_TOKEN is empty)
 curl -i https://app.example.com/lhe/v1
 
@@ -338,6 +341,13 @@ The body is the same with or without `LHE_TOKEN` / `LHE_ALLOWED_IPS`: protection
 | `advanced` | everything in the examples below: adds `timestamp`, `duration_ms`, `cached`, `message` and `meta` (server versions, heartbeats, pending migrations, debug flag) | `{"status":"ok","version":"…"}` |
 
 Anything other than `advanced` (case-insensitive) means `basic`, so a typo never exposes details. `basic` reveals nothing beyond pass/fail and the configured target names, which makes it safe for public endpoints. Use `advanced` behind `LHE_TOKEN` or `LHE_ALLOWED_IPS`. `php artisan lhe:run --json` always prints the advanced report.
+
+**Per request (token holders only).** When `LHE_TOKEN` is set, every request is authenticated, so a caller can ask for advanced output even if `LHE_OUTPUT=basic`: send the header `X-LHE-Output: advanced` (recommended) or `?output=advanced`. Uptime monitors keep the safe basic output while you get the details on demand. Rules:
+
+- Only with `LHE_TOKEN` set. Without a token (public, or IP allowlist only), the header and parameter are ignored, so unauthenticated callers can never upgrade the output.
+- Upgrade only: a request cannot switch `LHE_OUTPUT=advanced` down to basic. Unknown values are ignored; `advanced` is case-insensitive. The header wins over the parameter.
+- Applies to ping too (`{"status":"ok","version":"…"}`).
+- Cached results are shared: the mode only changes how the stored report is rendered.
 
 Basic, `GET /lhe/v1` → `503`:
 
@@ -1007,7 +1017,7 @@ All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`,
 
 | Variable | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `LHE_OUTPUT` | `basic`\|`advanced` | `basic` | `basic`: statuses only. `advanced`: adds messages, meta, timing and the ping `version` (see [Basic vs advanced output](#basic-vs-advanced-output)). Case-insensitive; any other value means `basic` | `advanced` |
+| `LHE_OUTPUT` | `basic`\|`advanced` | `basic` | `basic`: statuses only. `advanced`: adds messages, meta, timing and the ping `version` (see [Basic vs advanced output](#basic-vs-advanced-output)). Case-insensitive; any other value means `basic`. With `LHE_TOKEN` set, a request can also ask for advanced output (`X-LHE-Output: advanced` or `?output=advanced`) | `advanced` |
 
 **Database check**
 

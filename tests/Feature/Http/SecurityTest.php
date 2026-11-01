@@ -329,3 +329,50 @@ it('treats a zero rate limit as the default', function () {
     expect(app(Settings::class)->rateLimit())->toBe(60);
     $this->getJson('/lhe/v1/ping')->assertOk();
 });
+
+it('lets token holders ask for advanced output per request', function (array $headers, string $query) {
+    lheUseComposerJson('{"version": "2.4.1"}');
+    config(['laravel-health-endpoints.output' => 'basic', 'laravel-health-endpoints.token' => 'secret-token']);
+    $auth = ['Authorization' => 'Bearer secret-token'];
+
+    $this->getJson('/lhe/v1/ok-fixture', $auth)->assertOk()
+        ->assertExactJson(['status' => 'ok', 'checks' => ['ok-fixture' => ['status' => 'ok']]]);
+
+    $this->getJson('/lhe/v1/ok-fixture'.$query, $auth + $headers)->assertOk()
+        ->assertJsonPath('checks.ok-fixture.message', 'fine')
+        ->assertJsonStructure(['status', 'timestamp', 'duration_ms', 'cached', 'checks']);
+    $this->getJson('/lhe/v1/ping'.$query, $auth + $headers)->assertOk()
+        ->assertExactJson(['status' => 'ok', 'version' => '2.4.1']);
+})->with([
+    'header' => [['X-LHE-Output' => 'advanced'], ''],
+    'header, any case' => [['X-LHE-Output' => ' Advanced '], ''],
+    'query' => [[], '?output=advanced'],
+]);
+
+it('ignores the output request without a configured token', function (string $allowedIps) {
+    config(['laravel-health-endpoints.output' => 'basic', 'laravel-health-endpoints.allowed_ips' => $allowedIps]);
+    $basic = ['status' => 'ok', 'checks' => ['ok-fixture' => ['status' => 'ok']]];
+
+    $this->getJson('/lhe/v1/ok-fixture?output=advanced', ['X-LHE-Output' => 'advanced'])->assertOk()->assertExactJson($basic);
+    $this->getJson('/lhe/v1/ping?output=advanced')->assertOk()->assertExactJson(['status' => 'ok']);
+})->with(['public' => [''], 'IP allowlist only' => ['127.0.0.1']]);
+
+it('rejects an output request with a wrong token before anything else', function () {
+    config(['laravel-health-endpoints.output' => 'basic', 'laravel-health-endpoints.token' => 'secret-token']);
+
+    $this->getJson('/lhe/v1/ok-fixture?output=advanced', ['Authorization' => 'Bearer wrong', 'X-LHE-Output' => 'advanced'])
+        ->assertUnauthorized()->assertExactJson(['status' => 'error', 'message' => 'Unauthorized']);
+});
+
+it('ignores unknown, malformed and downgrade output requests', function (array $headers, string $query, string $mode) {
+    config(['laravel-health-endpoints.output' => $mode, 'laravel-health-endpoints.token' => 'secret-token']);
+
+    $json = $this->getJson('/lhe/v1/ok-fixture'.$query, ['Authorization' => 'Bearer secret-token'] + $headers)->assertOk()->json();
+
+    expect(array_key_exists('timestamp', $json))->toBe($mode === 'advanced');
+})->with([
+    'unknown value' => [['X-LHE-Output' => 'full'], '', 'basic'],
+    'array query' => [[], '?output[]=advanced', 'basic'],
+    'downgrade header' => [['X-LHE-Output' => 'basic'], '', 'advanced'],
+    'downgrade query' => [[], '?output=basic', 'advanced'],
+]);
