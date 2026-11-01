@@ -8,11 +8,13 @@ use Illuminate\Http\JsonResponse;
 
 /**
  * JSON encoding used by every endpoint and the --json console output: readable unicode and slashes, while keeping
- * Laravel's default HTML-safe escaping of <, >, &, ' and " inside string values.
+ * Laravel's default HTML-safe escaping of <, >, &, ' and " inside string values. Invalid UTF-8 is replaced and
+ * unencodable values (NAN, INF) become null instead of failing the whole response.
  */
 final class Json
 {
-    public const FLAGS = JsonResponse::DEFAULT_ENCODING_OPTIONS | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+    public const FLAGS = JsonResponse::DEFAULT_ENCODING_OPTIONS | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR;
 
     /**
      * @param  array<mixed>  $data

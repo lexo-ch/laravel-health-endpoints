@@ -60,11 +60,20 @@ final class Settings
     }
 
     /**
-     * Whether a boolean `*.enabled` style flag is on (default true when unset; unrecognised values count as true, null and '' as false).
+     * Whether a boolean `*.enabled` style flag is on. Unset, null, empty and unrecognised values all mean the default
+     * (true), so a blank or mistyped env var never silently disables a check.
      */
     public function checkEnabled(string $configKey): bool
     {
-        $value = $this->config->get(self::PREFIX.$configKey, true);
+        $value = $this->config->get(self::PREFIX.$configKey);
+
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+
+        if ($value === null || $value === '') {
+            return true;
+        }
 
         return filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
     }
@@ -76,9 +85,7 @@ final class Settings
 
     public function appInfoEnabled(): bool
     {
-        $value = $this->config->get(self::PREFIX.'app_info.enabled');
-
-        return $value === null ? true : filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
+        return $this->checkEnabled('app_info.enabled');
     }
 
     public function appVersion(): ?string

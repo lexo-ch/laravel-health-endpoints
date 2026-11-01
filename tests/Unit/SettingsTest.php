@@ -64,7 +64,7 @@ it('requires a positive rate limit', function (mixed $value, int $expected) {
 it('reads app info settings', function (mixed $enabled, bool $expected) {
     config(['laravel-health-endpoints.app_info.enabled' => $enabled]);
     expect(app(Settings::class)->appInfoEnabled())->toBe($expected);
-})->with([[true, true], [false, false], ['false', false], ['0', false], ['TRUE', true], [null, true], ['bogus', true]]);
+})->with([[true, true], [false, false], ['false', false], ['0', false], ['TRUE', true], [null, true], ['', true], ['bogus', true]]);
 
 it('reads the app version', function () {
     config(['laravel-health-endpoints.app_info.version' => ' 2.4.1 ']);
@@ -116,6 +116,14 @@ it('reads enabled flags with a true default', function (mixed $value, bool $expe
 
     expect(app(Settings::class)->checkEnabled('queue.enabled'))->toBe($expected);
 })->with([
-    [true, true], [false, false], ['false', false], ['off', false], ['0', false],
-    ['yes', true], ['garbage', true], [null, false],
+    [true, true], [false, false], ['false', false], ['off', false], ['0', false], [' FALSE ', false], [0, false],
+    ['yes', true], ['garbage', true], [null, true], ['', true], ['  ', true],
 ]);
+
+it('never disables a check through a blank env var', function () {
+    config(['laravel-health-endpoints.debug_mode.enabled' => '']);
+    expect(app(Settings::class)->checkEnabled('debug_mode.enabled'))->toBeTrue();
+
+    config(['laravel-health-endpoints' => array_diff_key(config('laravel-health-endpoints'), ['debug_mode' => true])]);
+    expect(app(Settings::class)->checkEnabled('debug_mode.enabled'))->toBeTrue();
+});

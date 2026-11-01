@@ -239,7 +239,7 @@ curl -i -H "Authorization: Bearer $LHE_TOKEN" https://app.example.com/lhe/v1
 - **Targets come only from configuration.** A target in the URL that is not in the configured list returns `404`. The package never connects to a connection, disk or store you did not configure.
 - **Liveness (`/lhe/v1/ping`)** goes through steps 1 to 3 and then answers immediately. It never touches the database, Redis or the app's cache stores (the rate-limit counter lives in `LHE_CACHE_STORE`, `file` by default), and is never cached.
 - Routes live outside the `web` and `api` groups: no session, no cookies, no CSRF.
-- The scheduler and queue checks read **heartbeats**. The package registers an every-minute scheduled callback (`lhe:scheduler-heartbeat`) and an every-minute queued job per queue target (`lhe:queue-heartbeat:{connection}:{queue}`; `redis` and `redis:default` count as one target). Both write a timestamp into the heartbeat store. The job is `ShouldBeUnique` per target with `uniqueFor = 60` (lock in the heartbeat store): a new heartbeat job is not queued while the previous one for that target is still waiting and less than 60 s old, so overlapping scheduler runs (several servers running `schedule:run`) cannot queue duplicates.
+- The scheduler and queue checks read **heartbeats**. The package registers an every-minute scheduled callback (`lhe:scheduler-heartbeat`) and an every-minute queued job per queue target (`lhe:queue-heartbeat:{connection}:{queue}`; `redis` and `redis:default` count as one target). Both write a timestamp into the heartbeat store. The job is `ShouldBeUnique` per target with `uniqueFor = 60` (lock in the heartbeat store): a new heartbeat job is not queued while the previous one for that target is still waiting and less than 60 s old, so overlapping scheduler runs (several servers running `schedule:run`) cannot queue duplicates. It does not stop heartbeat jobs from accumulating while no worker runs (about one per minute); they are tiny and are worked off quickly once a worker starts. A longer lock would let a lost job delay the next heartbeat past `LHE_QUEUE_MAX_AGE` and cause a false failure.
 
 ---
 
@@ -1024,7 +1024,7 @@ The markers are not behind the token or IP allowlist. They reveal nothing except
 
 ## 7. Environment variables reference
 
-All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`, `yes`/`no`; an invalid value falls back to the default. Invalid numbers also fall back to the default. Lists are comma-separated, with whitespace and empty entries ignored. Read only in `config/laravel-health-endpoints.php`, so `php artisan config:cache` works (re-run it after changing `.env`).
+All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`, `yes`/`no` (case-insensitive); an empty or invalid value falls back to the default, so a blank `LHE_*_ENABLED=` never disables anything. Invalid numbers also fall back to the default. Lists are comma-separated, with whitespace and empty entries ignored. Read only in `config/laravel-health-endpoints.php`, so `php artisan config:cache` works (re-run it after changing `.env`).
 
 **General**
 
@@ -1225,7 +1225,7 @@ All built-in checks are enabled by default. Disabling one (`LHE_<NAME>_ENABLED=f
 ### Migrations (`migrations`)
 
 - **Verifies:** every migration file has been run on the default connection.
-- **Probe:** compares the files in `database/migrations` (plus paths registered by packages via `loadMigrationsFrom`) with the `migrations` table, read through a throwaway probe copy of the migrator's connection (default connection) with a connect timeout of `LHE_TIMEOUT`. Your app's connection is never touched.
+- **Probe:** compares the files in `database/migrations` (plus paths registered by packages via `loadMigrationsFrom`) with the `migrations` table, read through a throwaway probe copy of the migrator's connection (default connection) with a connect timeout of `LHE_TIMEOUT`. Your app's connection is never touched. Exception: an in-memory SQLite database (`:memory:` or `mode=memory`, e.g. Laravel's default `phpunit.xml`) only exists on the app's own connection, so it is read there.
 - **Meta:** `pending` (count).
 - **Messages:** `Migrations table not found` (run `php artisan migrate`), `Connection not configured` (the default connection is missing from `config/database.php`), `2 pending migration(s): 2026_10_01_000000_create_orders_table, 2026_10_02_000000_add_status_to_orders_table` (up to three names, then `, …`). If the default DB is down, the mapped connection error (e.g. `Connection refused`).
 - **When to disable:** apps without a database or without migrations.
@@ -1593,6 +1593,38 @@ class StripeCheck extends Check implements HasCustomRoute
 
 → `GET /lhe/v1/billing/stripe` **and** `GET /lhe/v1/stripe-api`, same middleware and response format. Paths match `[a-z0-9-]+(/[a-z0-9-]+)*`. The **first segment must not equal any check name or reserved name** (`billing/stripe` is fine; `database/stripe` or `stripe-api/status` is rejected). After adding or changing a custom path, re-run `php artisan route:cache` if you cache routes.
 
+### Implementing `HealthCheck` directly
+
+Extending `Check` is optional. Any class implementing `LEXO\LaravelHealthEndpoints\Contracts\HealthCheck` works (add `HasTargets` and/or `HasCustomRoute` as needed); you then provide `name()` yourself:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\HealthChecks;
+
+use LEXO\LaravelHealthEndpoints\Contracts\HealthCheck;
+use LEXO\LaravelHealthEndpoints\Support\CheckResult;
+
+final class LicenseCheck implements HealthCheck
+{
+    public function name(): string
+    {
+        return 'license'; // must follow the naming rules below
+    }
+
+    public function run(): CheckResult
+    {
+        return now()->lt(config('services.license.expires_at'))
+            ? CheckResult::ok()
+            : CheckResult::fail('License expired');
+    }
+}
+```
+
+→ `GET /lhe/v1/license`.
+
 ### Constructor injection
 
 Checks are resolved from the container, so constructor dependencies are injected:
@@ -1679,7 +1711,7 @@ The same class registered several ways is only added once.
 | Make probes read-only or self-cleaning | Side effects (sending mail, charging cards, writing business data) |
 | Inject dependencies via the constructor | Catch every exception and return `ok` |
 
-`duration_ms` is measured by the package; do not measure it yourself. String values in `meta` are sanitized like messages.
+`duration_ms` is measured by the package; do not measure it yourself. String values in `meta` are sanitized like messages. Invalid UTF-8 in `meta` keys and target names is replaced with `?`, and `NAN`/`INF` become `null`, so one odd value never turns the whole report into a `503`.
 
 **Laravel Octane / long-running workers.** Check instances are resolved once and memoized per worker (the registry is a singleton), so the same object serves many requests. Keep checks stateless: no per-request data in properties, and do not inject request-scoped services (`Request`, the authenticated user, session) into the constructor. Resolve anything per-run inside `run()` / `runTarget()` instead.
 
@@ -1725,7 +1757,7 @@ Exit code `0` on success, `1` on any error.
 php artisan lhe:routes [--json]
 ```
 
-Lists every endpoint with method, full URL (based on `APP_URL`), check, target and active protection (`none`, `token`, `ip allowlist`, `token + ip allowlist`). Prints warnings for public production endpoints and short tokens. Exit code `0` (`1` if a check registration is invalid; the message is printed).
+Lists every endpoint with method, full URL (based on `APP_URL`), check, target and active protection (`none`, `token`, `ip allowlist`, `token + ip allowlist`). Prints warnings for public production endpoints, a non-string token in the published config (every request is denied), tokens shorter than 32 characters, and an `LHE_CACHE_STORE` or `LHE_HEARTBEAT_STORE` that is not a store in `config/cache.php` (both fail silently at runtime: no rate limiting, result cache or state tracking, respectively failing scheduler/queue checks). Exit code `0` (`1` if a check registration is invalid; the message is printed).
 
 ```console
 $ php artisan lhe:routes

@@ -126,7 +126,7 @@ it('schedules one heartbeat job per normalized target', function () {
         ->toBe(['lhe:queue-heartbeat:database:default', 'lhe:queue-heartbeat:database:emails']);
 });
 
-it('is unique per target for 60 seconds so jobs do not pile up without workers', function () {
+it('is unique per target for 60 seconds so overlapping scheduler runs queue no duplicates', function () {
     config(['laravel-health-endpoints.queue.connections' => 'database:emails,database:default', 'laravel-health-endpoints.heartbeat_store' => 'array']);
     Queue::fake();
     $events = lheQueueEvents();

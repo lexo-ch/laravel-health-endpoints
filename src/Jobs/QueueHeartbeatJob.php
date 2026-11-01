@@ -14,8 +14,10 @@ use LEXO\LaravelHealthEndpoints\Support\Heartbeats;
 use LEXO\LaravelHealthEndpoints\Support\Settings;
 
 /**
- * Unique per target for 60 s, so heartbeat jobs do not pile up in the queue while no worker is running.
- * The lock lives in the heartbeat store, which scheduler and workers already share.
+ * Unique per target for 60 s, so overlapping scheduler runs (several servers running schedule:run) cannot queue
+ * duplicates. This does not stop jobs from accumulating while no worker runs: the lock expires every minute and the
+ * next scheduler run queues a new job. A longer lock would delay the next heartbeat after a lost job past the queue
+ * max age (false failure). The lock lives in the heartbeat store, which scheduler and workers already share.
  */
 final class QueueHeartbeatJob implements ShouldBeUnique, ShouldQueue
 {

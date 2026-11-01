@@ -415,3 +415,35 @@ it('sends unicode and slashes unescaped but keeps HTML-safe escaping', function 
         ->not->toContain('<b>')
         ->and(json_decode($content, true)['app']['name'])->toBe('Café/Ops — <b>');
 });
+
+it('keeps the report encodable when meta holds NAN, INF or invalid UTF-8', function () {
+    config(['laravel-health-endpoints.details' => 'always']);
+    lheFreshRegistry(new class extends Check
+    {
+        protected ?string $name = 'odd-meta';
+
+        public function run(): CheckResult
+        {
+            return CheckResult::ok(meta: ['nan' => NAN, 'inf' => -INF, "bad\xB1key" => "bad\xB1value", 'nested' => ['x' => INF], 'n' => 1.5]);
+        }
+    });
+
+    $response = $this->getJson('/lhe/v1')->assertOk()->assertJsonPath('status', 'ok');
+    $meta = $response->json('checks.odd-meta.meta');
+
+    expect($meta['nan'])->toBeNull()
+        ->and($meta['inf'])->toBeNull()
+        ->and($meta['nested']['x'])->toBeNull()
+        ->and($meta['n'])->toBe(1.5)
+        ->and($meta)->toHaveKey('bad?key')
+        ->and($meta['bad?key'])->toBe('bad?value');
+});
+
+it('keeps the report encodable when a target name is invalid UTF-8', function () {
+    config(['laravel-health-endpoints.details' => 'always']);
+    lheFreshRegistry(new TwoTargetFixture(["ok\xB1" => true]));
+
+    $response = $this->getJson('/lhe/v1')->assertOk();
+
+    expect(array_keys($response->json('checks.two-target-fixture.targets')))->toBe(['ok?']);
+});

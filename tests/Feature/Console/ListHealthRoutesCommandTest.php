@@ -130,3 +130,31 @@ it('prints json urls with unescaped slashes', function () {
 
     expect(Artisan::output())->toContain('"url": "http://example.test/lhe/v1/ping"');
 });
+
+it('warns when the package cache store does not exist', function () {
+    config(['laravel-health-endpoints.cache_store' => 'nope', 'laravel-health-endpoints.token' => str_repeat('x', 40)]);
+
+    $warnings = lheRoutesJson()['warnings'];
+
+    expect($warnings)->toHaveCount(1)
+        ->and($warnings[0])->toContain('LHE_CACHE_STORE "nope"')->toContain('rate limiting');
+});
+
+it('warns when the heartbeat store does not exist', function () {
+    config(['laravel-health-endpoints.heartbeat_store' => 'nope', 'laravel-health-endpoints.token' => str_repeat('x', 40)]);
+
+    $warnings = lheRoutesJson()['warnings'];
+
+    expect($warnings)->toHaveCount(1)
+        ->and($warnings[0])->toContain('LHE_HEARTBEAT_STORE "nope"');
+});
+
+it('does not warn about configured stores', function () {
+    config([
+        'laravel-health-endpoints.cache_store' => 'array',
+        'laravel-health-endpoints.heartbeat_store' => 'file',
+        'laravel-health-endpoints.token' => str_repeat('x', 40),
+    ]);
+
+    expect(lheRoutesJson()['warnings'])->toBe([]);
+});

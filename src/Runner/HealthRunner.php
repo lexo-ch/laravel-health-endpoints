@@ -95,7 +95,9 @@ final class HealthRunner
         foreach ($selected as $t) {
             [$result, $ms, $exception] = $this->measure(fn (): CheckResult => $check->runTarget($t));
             $this->tracker->record($name, $t, $result, $ms, $exception);
-            $targets[$t] = $this->report($t, $result, $ms);
+            // Target names come from the check and may contain anything; invalid UTF-8 would break the JSON response.
+            $label = mb_scrub($t);
+            $targets[$label] = $this->report($label, $result, $ms);
             $failed = $failed || ! $result->isOk();
         }
 
@@ -157,14 +159,28 @@ final class HealthRunner
         return new CheckResult($result->status, $message, $meta);
     }
 
+    /**
+     * Strings are sanitized like messages, keys are scrubbed to valid UTF-8 and NAN/INF become null, so one bad meta
+     * value can never make the whole report unencodable.
+     */
     private function sanitizeValue(mixed $value): mixed
     {
         if (is_string($value)) {
             return MessageSanitizer::sanitize($value);
         }
 
+        if (is_float($value) && ! is_finite($value)) {
+            return null;
+        }
+
         if (is_array($value)) {
-            return array_map($this->sanitizeValue(...), $value);
+            $out = [];
+
+            foreach ($value as $key => $item) {
+                $out[is_string($key) ? mb_scrub($key) : $key] = $this->sanitizeValue($item);
+            }
+
+            return $out;
         }
 
         return $value;

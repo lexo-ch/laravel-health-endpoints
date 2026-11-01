@@ -126,6 +126,23 @@ final class ListHealthRoutesCommand extends Command
             $warnings[] = 'LHE_TOKEN is shorter than 32 characters. Generate a strong one with `php artisan lhe:token`.';
         }
 
+        // Both stores fail silently at runtime by design, so a typo would otherwise go unnoticed.
+        if (! $this->storeConfigured($settings->cacheStore())) {
+            $warnings[] = sprintf('LHE_CACHE_STORE "%s" is not a store in config/cache.php: rate limiting, result caching and failure/recovery tracking do not work.', $settings->cacheStore());
+        }
+
+        $heartbeat = $settings->heartbeatStore();
+        if ($heartbeat !== null && ! $this->storeConfigured($heartbeat)) {
+            $warnings[] = sprintf('LHE_HEARTBEAT_STORE "%s" is not a store in config/cache.php: the scheduler and queue checks always fail.', $heartbeat);
+        }
+
         return $warnings;
+    }
+
+    private function storeConfigured(string $store): bool
+    {
+        $stores = config('cache.stores');
+
+        return is_array($stores) && is_array($stores[$store] ?? null);
     }
 }

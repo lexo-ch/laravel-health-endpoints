@@ -123,3 +123,21 @@ it('fails when the migrator connection is not configured', function () {
 
     expect(lheMigrationsRun()->message)->toBe('Connection not configured');
 });
+
+it('reads an in-memory sqlite database through the app connection', function (string $database) {
+    config(['database.connections.memory' => ['driver' => 'sqlite', 'database' => $database, 'prefix' => ''], 'database.default' => 'memory']);
+    app()->forgetInstance('migration.repository');
+    app()->forgetInstance('migrator');
+
+    expect(lheMigrationsRun()->message)->toBe('Migrations table not found');
+
+    Artisan::call('migrate:install');
+    app('migrator')->path(__DIR__.'/../../Fixtures/migrations');
+    app('migrator')->getRepository()->log('2026_01_01_000000_create_lhe_fixture_table', 1);
+
+    $r = lheMigrationsRun();
+    expect($r->isOk())->toBeTrue()->and($r->meta)->toBe(['pending' => 0]);
+    lheAssertNoMigrationProbeResidue();
+
+    app('db')->purge('memory');
+})->with([':memory:', 'file:lhe?mode=memory&cache=shared']);

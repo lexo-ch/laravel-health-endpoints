@@ -7,6 +7,7 @@ namespace LEXO\LaravelHealthEndpoints\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use LEXO\LaravelHealthEndpoints\Support\Settings;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 final class InjectServiceMarkers
@@ -62,9 +63,7 @@ final class InjectServiceMarkers
 
     private function enabled(): bool
     {
-        $value = config('laravel-health-endpoints.markers.enabled', true);
-
-        return filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
+        return app(Settings::class)->checkEnabled('markers.enabled');
     }
 
     private function marker(string $key): string

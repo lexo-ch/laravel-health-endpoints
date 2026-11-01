@@ -12,6 +12,8 @@ use LEXO\LaravelHealthEndpoints\Support\Settings;
 
 /**
  * Reads the migrations table through a throwaway probe connection (LHE_TIMEOUT applied), never the app connection.
+ * Exception: an in-memory SQLite database exists only on the app's own connection (a probe would open a new, empty
+ * one), so it is read there; it cannot hang.
  */
 final class MigrationsCheck extends Check
 {
@@ -32,12 +34,9 @@ final class MigrationsCheck extends Check
 
         $files = array_keys($migrator->getMigrationFiles([database_path('migrations'), ...$migrator->paths()]));
 
-        $ran = ProbeConnection::using($name, $source, app(Settings::class)->timeout(), static function ($connection, string $probe): ?array {
-            $repository = new DatabaseMigrationRepository(app('db'), self::table());
-            $repository->setSource($probe);
-
-            return $repository->repositoryExists() ? $repository->getRan() : null;
-        });
+        $ran = self::inMemory($source)
+            ? self::ran($name)
+            : ProbeConnection::using($name, $source, app(Settings::class)->timeout(), static fn ($connection, string $probe): ?array => self::ran($probe));
 
         if ($ran === null) {
             return CheckResult::fail('Migrations table not found');
@@ -58,6 +57,32 @@ final class MigrationsCheck extends Check
         );
 
         return CheckResult::fail($message, ['pending' => $count]);
+    }
+
+    /**
+     * Names of the migrations that ran, or null when the migrations table does not exist.
+     *
+     * @return array<string>|null
+     */
+    private static function ran(string $connection): ?array
+    {
+        $repository = new DatabaseMigrationRepository(app('db'), self::table());
+        $repository->setSource($connection);
+
+        return $repository->repositoryExists() ? $repository->getRan() : null;
+    }
+
+    /**
+     * Same detection as Laravel's SQLiteConnector.
+     *
+     * @param  array<mixed>  $source
+     */
+    private static function inMemory(array $source): bool
+    {
+        $database = $source['database'] ?? null;
+
+        return ($source['driver'] ?? null) === 'sqlite' && is_string($database)
+            && ($database === ':memory:' || str_contains($database, '?mode=memory') || str_contains($database, '&mode=memory'));
     }
 
     private static function table(): string
