@@ -51,13 +51,15 @@ class DiskSpaceCheck extends Check
 
 ### Verifying
 
-- `php artisan lhe:run disk-space`: runs the check from the CLI and prints a table. Exit code `0` = ok, `1` = failed, `2` = unknown check or target. Add `--json` for the detailed report.
+- `php artisan lhe:run disk-space`: runs the check from the CLI and prints a table. Exit code `0` = ok, `1` = failed, `2` = unknown check or target. Add `--json` for the full (advanced) JSON report.
 - `php artisan lhe:routes`: lists every endpoint, check, target and the active protection, and prints configuration errors.
-- In Pest feature tests, call `$this->getJson('/lhe/v1/disk-space')->assertOk()->assertJsonPath('checks.disk-space.status', 'ok');`. Set `LHE_CACHE_TTL=0` and `LHE_CACHE_STORE=array` in `phpunit.xml`.
+- In Pest feature tests, call `$this->getJson('/lhe/v1/disk-space')->assertOk()->assertJsonPath('checks.disk-space.status', 'ok');`. Set `LHE_CACHE_TTL=0` and `LHE_CACHE_STORE=array` in `phpunit.xml`. Responses default to statuses only; to assert `message` or `meta` over HTTP, set `config(['laravel-health-endpoints.output' => 'advanced'])` in the test.
 
 ### Security
 
-- Protect production with `LHE_TOKEN` (generate with `php artisan lhe:token`; send as `Authorization: Bearer <token>`) and/or `LHE_ALLOWED_IPS`. Without either, responses are minimal (status only).
+- Protect production with `LHE_TOKEN` (generate with `php artisan lhe:token`; send as `Authorization: Bearer <token>`) and/or `LHE_ALLOWED_IPS`. Protection controls who may call the endpoints, not what they return.
+- `LHE_OUTPUT` controls the content: `basic` (default) returns statuses only, `advanced` adds messages, meta and timing. Only use `advanced` behind a token or allowlist. With `LHE_TOKEN` set, a request can ask for advanced output via the `X-LHE-Output: advanced` header.
+- Load balancers and liveness probes must use `/lhe/v1/ping`, never `/lhe/v1`: the aggregate fails when any check fails (e.g. pending migrations during a deploy).
 - Behind a proxy, configure Laravel's trusted proxies; the allowlist uses `$request->ip()`.
 - Frontend markers: if auto-injection is off or the layout is unusual, add the Blade directives `@lheHeaderMarker` (inside `<head>`) and `@lheFooterMarker` (before `</body>`).
 @endverbatim
