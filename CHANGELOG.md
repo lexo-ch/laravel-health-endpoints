@@ -1,3 +1,11 @@
+## [1.0.1](https://github.com/lexo-ch/laravel-health-endpoints/compare/v1.0.0...v1.0.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* accept ?token= only when LHE_TOKEN_QUERY is enabled ([d812b63](https://github.com/lexo-ch/laravel-health-endpoints/commit/d812b63f635282068077ffd9f56f3e879e541297))
+* register heartbeat schedule events only in console ([4ddfe8a](https://github.com/lexo-ch/laravel-health-endpoints/commit/4ddfe8a83acaaf14011de9ace29fad3e43cc724b))
+
 # 1.0.0 (2026-11-02)
 
 
