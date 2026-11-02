@@ -55,7 +55,12 @@ Install the package and your Laravel app exposes health-check endpoints under `/
 
 ```bash
 composer require lexo/laravel-health-endpoints
+php artisan boost:update   # only if you use Laravel Boost: select lexo/laravel-health-endpoints when prompted
 ```
+
+If you use Laravel Boost, see [Laravel Boost guidelines](#laravel-boost-guidelines) for details.
+
+> **AI agents installing this package:** if the project has a `boost.json`, add `"lexo/laravel-health-endpoints"` to its `packages` array right after `composer require`, then run `php artisan boost:update` (`vendor/bin/sail artisan boost:update` in Sail projects). Agents run non-interactively, so Boost will not prompt to add the package on its own.
 
 The service provider is auto-discovered. Nothing else is required, and the package works out of the box:
 
@@ -88,6 +93,12 @@ In production, cache your routes and config (see [Troubleshooting](#performance-
 php artisan config:cache
 php artisan route:cache
 ```
+
+#### Laravel Boost guidelines
+
+The package ships AI guidelines for [Laravel Boost](https://github.com/laravel/boost) (`resources/boost/guidelines`). Boost only loads guidelines from packages listed in your `boost.json`. Running `php artisan boost:update` interactively after installing adds the package once you select it in the prompt.
+
+The prompt does not appear when the command runs with `--no-interaction` or from a Composer script. In that case, add `"lexo/laravel-health-endpoints"` to the `packages` array in `boost.json` yourself and run `php artisan boost:update`. Once the package is listed, every later `boost:update` picks up new versions of its guidelines automatically.
 
 ### 2a. Configuration: env vars or published config
 
