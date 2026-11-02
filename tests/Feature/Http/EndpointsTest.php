@@ -282,7 +282,7 @@ it('never shows the debug page', function () {
 });
 
 it('logs endpoint errors without the query string', function () {
-    config(['laravel-health-endpoints.token' => 'secret-token']);
+    config(['laravel-health-endpoints.token' => 'secret-token', 'laravel-health-endpoints.token_query' => true]);
     Log::spy();
     app()->bind(HealthCheckRegistry::class, fn () => throw new RuntimeException('boom'));
 

@@ -34,6 +34,14 @@ it('reads config on every call', function () {
     expect($s->rateLimit())->toBe(7);
 });
 
+it('enables the query token only for explicit true values', function (mixed $value, bool $expected) {
+    config(['laravel-health-endpoints.token_query' => $value]);
+    expect(app(Settings::class)->tokenQueryEnabled())->toBe($expected);
+})->with([
+    [true, true], ['true', true], [' TRUE ', true], ['1', true], [1, true], ['on', true], ['yes', true],
+    [false, false], ['false', false], ['0', false], ['', false], [null, false], ['ture', false], [['true'], false],
+]);
+
 it('is a singleton', fn () => expect(app(Settings::class))->toBe(app(Settings::class)));
 
 it('exposes defaults', function () {

@@ -38,6 +38,25 @@ final class Settings
     }
 
     /**
+     * Whether ?token= is accepted. Off unless explicitly true: unset, empty and unrecognised values keep it off,
+     * so a typo never exposes the token to access logs.
+     */
+    public function tokenQueryEnabled(): bool
+    {
+        $value = $this->config->get(self::PREFIX.'token_query');
+
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+
+        if (! is_bool($value) && ! is_int($value) && ! is_string($value)) {
+            return false;
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? false;
+    }
+
+    /**
      * @return list<string>
      */
     public function allowedIps(): array
