@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 return [
     'token' => env('LHE_TOKEN', ''),
+    'token_query' => env('LHE_TOKEN_QUERY', false),        // also accept ?token= (ends up in access logs)
     'rate_limit' => env('LHE_RATE_LIMIT', 60),              // requests per minute per IP
     'allowed_ips' => env('LHE_ALLOWED_IPS', ''),            // comma-separated IPs/CIDRs, empty = public
     'timeout' => env('LHE_TIMEOUT', 3),

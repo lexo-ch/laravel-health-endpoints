@@ -37,7 +37,7 @@ Install the package and your Laravel app exposes health-check endpoints under `/
 - Multi-target checks: probe every configured DB/Redis connection, cache store, disk and queue at once, or one of them (`/lhe/v1/database/reporting`).
 - One call for everything (`/lhe/v1`), one call per check, one call per target, and a liveness endpoint (`/lhe/v1/ping`).
 - Custom checks in minutes: extend one base class, drop the file in `app/HealthChecks`, and it is auto-discovered. A generator command is included.
-- Secure by default: optional token (Bearer header or `?token=`), IP/CIDR allowlist, per-IP rate limiting, statuses-only output by default (`LHE_OUTPUT=basic`), identical with or without protection, sanitized messages, no debug pages, no sessions/cookies/CSRF.
+- Secure by default: optional token (Bearer header; `?token=` only with `LHE_TOKEN_QUERY=true`), IP/CIDR allowlist, per-IP rate limiting, statuses-only output by default (`LHE_OUTPUT=basic`), identical with or without protection, sanitized messages, no debug pages, no sessions/cookies/CSRF.
 - Logs on state transitions only. A one-hour outage produces one error and one recovery entry, not 60 errors.
 - `HealthCheckFailed` / `HealthCheckRecovered` events for your own alerting.
 - Short result cache (10 s by default) so aggressive polling does not hammer your backends.
@@ -252,7 +252,7 @@ curl -i -H "Authorization: Bearer $LHE_TOKEN" https://app.example.com/lhe/v1
 - **Targets come only from configuration.** A target in the URL that is not in the configured list returns `404`. The package never connects to a connection, disk or store you did not configure.
 - **Liveness (`/lhe/v1/ping`)** goes through steps 1 to 3 and then answers immediately. It never touches the database, Redis or the app's cache stores (the rate-limit counter lives in `LHE_CACHE_STORE`, `file` by default), and is never cached.
 - Routes live outside the `web` and `api` groups: no session, no cookies, no CSRF.
-- The scheduler and queue checks read **heartbeats**. The package registers an every-minute scheduled callback (`lhe:scheduler-heartbeat`) and an every-minute queued job per queue target (`lhe:queue-heartbeat:{connection}:{queue}`; `redis` and `redis:default` count as one target). Both write a timestamp into the heartbeat store. The job is `ShouldBeUnique` per target with `uniqueFor = 60` (lock in the heartbeat store): a new heartbeat job is not queued while the previous one for that target is still waiting and less than 60 s old, so overlapping scheduler runs (several servers running `schedule:run`) cannot queue duplicates. It does not stop heartbeat jobs from accumulating while no worker runs (about one per minute); they are tiny and are worked off quickly once a worker starts. A longer lock would let a lost job delay the next heartbeat past `LHE_QUEUE_MAX_AGE` and cause a false failure.
+- The scheduler and queue checks read **heartbeats**. The package registers an every-minute scheduled callback (`lhe:scheduler-heartbeat`) and an every-minute queued job per queue target (`lhe:queue-heartbeat:{connection}:{queue}`; `redis` and `redis:default` count as one target). Both write a timestamp into the heartbeat store. The job is `ShouldBeUnique` per target with `uniqueFor = 60` (lock in the heartbeat store): a new heartbeat job is not queued while the previous one for that target is still waiting and less than 60 s old, so overlapping scheduler runs (several servers running `schedule:run`) cannot queue duplicates. Both are registered only in console context (`schedule:run`, `schedule:work`, `schedule:list`), so code that reads `Schedule` during a web request (e.g. a dashboard widget) sees only the app's own events. It does not stop heartbeat jobs from accumulating while no worker runs (about one per minute); they are tiny and are worked off quickly once a worker starts. A longer lock would let a lost job delay the next heartbeat past `LHE_QUEUE_MAX_AGE` and cause a false failure.
 
 ---
 
@@ -298,7 +298,7 @@ Route constraints: check names match `[a-z][a-z0-9-]*`; targets match `[A-Za-z0-
 # Token via Authorization header (recommended: query strings end up in access logs)
 curl -i -H "Authorization: Bearer $LHE_TOKEN" https://app.example.com/lhe/v1
 
-# Token via query string (for tools that cannot send headers)
+# Token via query string (only with LHE_TOKEN_QUERY=true; for tools that cannot send headers)
 curl -i "https://app.example.com/lhe/v1?token=$LHE_TOKEN"
 
 # Advanced output for this request only (LHE_TOKEN must be set; see "Basic vs advanced output")
@@ -334,7 +334,7 @@ curl -i -H "Authorization: Bearer $LHE_TOKEN" https://app.example.com/lhe/v1/bil
 curl -I -H "Authorization: Bearer $LHE_TOKEN" https://app.example.com/lhe/v1
 ```
 
-If both a non-empty `Authorization: Bearer` header and `?token=` are sent, the header wins.
+`?token=` is ignored unless `LHE_TOKEN_QUERY=true`. When it is enabled and both a non-empty `Authorization: Bearer` header and `?token=` are sent, the header wins.
 
 ---
 
@@ -838,7 +838,7 @@ Crontab, every minute:
 **UptimeRobot / Better Stack / Pingdom (status code + keyword)**
 
 - URL: `https://app.example.com/lhe/v1` (or a per-check URL such as `/lhe/v1/database`)
-- If the tool supports custom request headers: `Authorization: Bearer <LHE_TOKEN>`. If it does not, append `?token=<LHE_TOKEN>` (the token then appears in your access logs; prefer an IP allowlist for such tools).
+- If the tool supports custom request headers: `Authorization: Bearer <LHE_TOKEN>`. If it does not, prefer an IP allowlist. As a last resort set `LHE_TOKEN_QUERY=true` and append `?token=<LHE_TOKEN>` (the token then appears in your access logs).
 - Expected status: `200`
 - Keyword (optional): `"status":"ok"` must be present
 - Timeout: at least 2 × `LHE_TIMEOUT` × the number of server targets for the aggregate endpoint, typically 20–30 s (see polling guidance below)
@@ -883,7 +883,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
 
 **Load balancer health checks**
 
-AWS ALB target group (ALB health checks cannot send custom headers, so allow the VPC CIDR instead of using a token, or use `?token=`):
+AWS ALB target group (ALB health checks cannot send custom headers, so allow the VPC CIDR instead of using a token, or set `LHE_TOKEN_QUERY=true` and use `?token=`):
 
 ```text
 Protocol:           HTTP
@@ -1002,7 +1002,8 @@ All variables are optional. Booleans accept `true`/`false`, `1`/`0`, `on`/`off`,
 
 | Variable | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `LHE_TOKEN` | string | empty (no token) | Shared token required on every `/lhe/v1*` request (Bearer header or `?token=`). Use ≥ 32 chars: `php artisan lhe:token` | `4f3c…6e5d4c` |
+| `LHE_TOKEN` | string | empty (no token) | Shared token required on every `/lhe/v1*` request (Bearer header, or `?token=` with `LHE_TOKEN_QUERY=true`). Use ≥ 32 chars: `php artisan lhe:token` | `4f3c…6e5d4c` |
+| `LHE_TOKEN_QUERY` | bool | `false` | Also accept the token as `?token=`, for tools that cannot send headers. Query strings end up in access logs; only explicit true values (`true`, `1`, `on`, `yes`) enable it | `true` |
 | `LHE_ALLOWED_IPS` | list | empty (all IPs) | IPv4/IPv6 addresses and CIDR ranges allowed to call the endpoints | `203.0.113.10,10.0.0.0/8,2001:db8::/32` |
 | `LHE_RATE_LIMIT` | int (≥ 1) | `60` | Requests per minute per client IP | `30` |
 
@@ -1265,7 +1266,7 @@ LHE_MARKERS_ENABLED=false
 **Token.**
 
 - `LHE_TOKEN` empty means no token is required. When set, every `/lhe/v1*` request (including `ping`) needs it. A non-string `token` value in the published config (array, int, object) fails closed: every request is denied with `401`.
-- Send it as `Authorization: Bearer <token>` (**recommended**) or `?token=<token>`. Query strings are written to web server, proxy and CDN access logs.
+- Send it as `Authorization: Bearer <token>`. `?token=<token>` is accepted only with `LHE_TOKEN_QUERY=true` (off by default), because query strings are written to web server, proxy and CDN access logs. Unset, empty or unrecognised values keep it off. `lhe:routes` warns while it is enabled.
 - Compared with `hash_equals` (constant time). Never logged, echoed, cached or put in response bodies.
 - Generate one with `php artisan lhe:token`: 64 hex characters (256 bits) from `random_bytes`. It is printed only and nothing is written to disk. `lhe:routes` warns about tokens shorter than 32 characters.
 - Wrong or missing token returns `401` `{"status":"error","message":"Unauthorized"}`. This is not logged as a health failure.
@@ -1310,7 +1311,7 @@ LHE_MARKERS_ENABLED=false
 - [ ] Load balancers and liveness probes on `/lhe/v1/ping`, not `/lhe/v1`.
 - [ ] `php artisan lhe:routes` shows no warnings.
 - [ ] Custom checks put no secrets in `message`, `meta` or target names.
-- [ ] Access logs scrubbed of `token=` if any tool must use the query parameter.
+- [ ] `LHE_TOKEN_QUERY` left off. If a tool must use `?token=`, scrub `token=` from access logs.
 - [ ] `php artisan config:cache` and `php artisan route:cache` in production.
 
 ---
@@ -1722,7 +1723,7 @@ Exit code `0` on success, `1` on any error.
 php artisan lhe:routes [--json]
 ```
 
-Prints the active output mode (`LHE_OUTPUT`, and whether token holders can request advanced output per request), then lists every endpoint with method, full URL (based on `APP_URL`), check, target and active protection (`none`, `token`, `ip allowlist`, `token + ip allowlist`). Prints warnings for public production endpoints, `LHE_CACHE_TTL=0` on public production endpoints, a non-string token in the published config (every request is denied), tokens shorter than 32 characters, and an `LHE_CACHE_STORE` or `LHE_HEARTBEAT_STORE` that is not a store in `config/cache.php` (both fail silently at runtime: no rate limiting, result cache or state tracking, respectively failing scheduler/queue checks). Exit code `0` (`1` if a check registration is invalid; the message is printed).
+Prints the active output mode (`LHE_OUTPUT`, and whether token holders can request advanced output per request), then lists every endpoint with method, full URL (based on `APP_URL`), check, target and active protection (`none`, `token`, `ip allowlist`, `token + ip allowlist`). Prints warnings for public production endpoints, `LHE_CACHE_TTL=0` on public production endpoints, a non-string token in the published config (every request is denied), tokens shorter than 32 characters, `LHE_TOKEN_QUERY` enabled while a token is set, and an `LHE_CACHE_STORE` or `LHE_HEARTBEAT_STORE` that is not a store in `config/cache.php` (both fail silently at runtime: no rate limiting, result cache or state tracking, respectively failing scheduler/queue checks). Exit code `0` (`1` if a check registration is invalid; the message is printed).
 
 ```console
 $ php artisan lhe:routes
@@ -1979,7 +1980,7 @@ Similarly, `LHE_CACHE_STORE` (`file` by default) is per server. Each server trac
 ### `401 Unauthorized` although the token is correct
 
 - `.env` changed but the config is cached: run `php artisan config:cache` (or `config:clear`).
-- Apache/PHP-FPM can drop the `Authorization` header. Laravel's default `public/.htaccess` contains the rewrite rule that passes it on, so make sure it is still there, or use `?token=` temporarily to confirm.
+- Apache/PHP-FPM can drop the `Authorization` header. Laravel's default `public/.htaccess` contains the rewrite rule that passes it on, so make sure it is still there, or temporarily set `LHE_TOKEN_QUERY=true` and use `?token=` to confirm.
 - A proxy, CDN or WAF strips `Authorization`.
 - Whitespace or quotes in `.env`: the value is trimmed, but quotes inside the value are not.
 

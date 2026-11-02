@@ -42,6 +42,11 @@ final class LaravelHealthEndpointsServiceProvider extends ServiceProvider
 
     private function registerHeartbeats(Schedule $schedule): void
     {
+        // Only schedule:run/work/list need these; on web requests they would pollute apps that inspect Schedule.
+        if (! $this->app->runningInConsole()) {
+            return;
+        }
+
         $settings = $this->app->make(Settings::class);
 
         if ($settings->checkEnabled('scheduler.enabled')) {

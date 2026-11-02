@@ -14,8 +14,8 @@ use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 /**
- * Optional shared token (Bearer header preferred, ?token= accepted). Non-string or empty values count as missing;
- * a non-empty Bearer header always wins over the query. A non-string token config denies every request (fail closed).
+ * Optional shared token (Bearer header; ?token= only with LHE_TOKEN_QUERY=true). Non-string or empty values count as
+ * missing; a non-empty Bearer header always wins over the query. A non-string token config denies every request (fail closed).
  * The token is never logged or echoed.
  */
 final class AuthorizeHealthToken
@@ -59,6 +59,10 @@ final class AuthorizeHealthToken
 
         if (is_string($bearer) && $bearer !== '') {
             return $bearer;
+        }
+
+        if (! $this->settings->tokenQueryEnabled()) {
+            return null;
         }
 
         $query = $request->query('token');

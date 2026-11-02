@@ -68,6 +68,18 @@ it('registers the scheduler heartbeat event only when enabled', function () {
     expect(lheScheduleNames())->not->toContain('lhe:scheduler-heartbeat');
 });
 
+it('does not register heartbeat events outside the console', function () {
+    // Apps that inspect Schedule on web requests (e.g. dashboards) must see only their own events.
+    $property = new ReflectionProperty(app(), 'isRunningInConsole');
+    $property->setValue(app(), false);
+
+    try {
+        expect(lheScheduleNames())->toBe([]);
+    } finally {
+        $property->setValue(app(), null);
+    }
+});
+
 it('writes the heartbeat when the scheduled event runs', function () {
     lheScheduleNames();
     $event = collect(app(Schedule::class)->events())->first(fn ($e) => $e->description === 'lhe:scheduler-heartbeat');

@@ -103,6 +103,15 @@ it('warns on a short token without revealing it', function () {
     expect(lheRoutesJson()['warnings'][0])->toContain('shorter than 32')->not->toContain('short-token');
 });
 
+it('warns when the query token is enabled', function () {
+    config(['laravel-health-endpoints.token' => str_repeat('a', 64), 'laravel-health-endpoints.token_query' => true]);
+
+    expect(lheRoutesJson()['warnings'])->toBe(['LHE_TOKEN_QUERY is enabled: tokens sent as ?token= end up in web server, proxy and CDN access logs. Prefer the Authorization: Bearer header.']);
+
+    config(['laravel-health-endpoints.token_query' => false]);
+    expect(lheRoutesJson()['warnings'])->toBe([]);
+});
+
 it('warns when a check cannot list its targets', function () {
     LaravelHealthEndpoints::register(new class extends TargetedCheck
     {

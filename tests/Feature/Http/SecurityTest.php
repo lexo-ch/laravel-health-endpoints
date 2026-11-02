@@ -38,10 +38,35 @@ it('requires the token when set', function () {
     config(['laravel-health-endpoints.token' => 'secret-token']);
 
     $this->getJson('/lhe/v1')->assertUnauthorized()->assertExactJson(['status' => 'error', 'message' => 'Unauthorized']);
-    $this->getJson('/lhe/v1?token=wrong')->assertUnauthorized();
-    $this->getJson('/lhe/v1?token=secret-token')->assertOk();
+    $this->getJson('/lhe/v1', ['Authorization' => 'Bearer wrong'])->assertUnauthorized();
     $this->getJson('/lhe/v1', ['Authorization' => 'Bearer secret-token'])->assertOk();
 });
+
+it('rejects the query token by default', function () {
+    config(['laravel-health-endpoints.token' => 'secret-token']);
+
+    $this->getJson('/lhe/v1?token=secret-token')->assertUnauthorized()
+        ->assertExactJson(['status' => 'error', 'message' => 'Unauthorized']);
+    $this->getJson('/lhe/v1/ping?token=secret-token')->assertUnauthorized();
+});
+
+it('accepts the query token only when explicitly enabled', function (mixed $flag, bool $accepted) {
+    config(['laravel-health-endpoints.token' => 'secret-token', 'laravel-health-endpoints.token_query' => $flag]);
+
+    $this->getJson('/lhe/v1?token=wrong')->assertUnauthorized();
+    $this->getJson('/lhe/v1?token=secret-token')->assertStatus($accepted ? 200 : 401);
+    $this->getJson('/lhe/v1', ['Authorization' => 'Bearer secret-token'])->assertOk();
+})->with([
+    'bool true' => [true, true],
+    'string true' => ['true', true],
+    'string 1' => ['1', true],
+    'bool false' => [false, false],
+    'string false' => ['false', false],
+    'empty' => ['', false],
+    'null' => [null, false],
+    'typo' => ['ture', false],
+    'array' => [['true'], false],
+]);
 
 it('protects every route with the token', function (string $uri) {
     config(['laravel-health-endpoints.token' => 'secret-token']);
@@ -50,7 +75,7 @@ it('protects every route with the token', function (string $uri) {
 })->with(['/lhe/v1/ping', '/lhe/v1/ok-fixture', '/lhe/v1/two-target-fixture/a', '/lhe/v1/a/b/c']);
 
 it('treats malformed tokens as missing', function (string $uri, array $headers) {
-    config(['laravel-health-endpoints.token' => 'secret-token']);
+    config(['laravel-health-endpoints.token' => 'secret-token', 'laravel-health-endpoints.token_query' => true]);
 
     $this->getJson($uri, $headers)->assertUnauthorized()->assertExactJson(['status' => 'error', 'message' => 'Unauthorized']);
 })->with([
@@ -71,7 +96,7 @@ it('accepts the bearer scheme case-insensitively', function (string $scheme) {
 })->with(['bearer', 'Bearer', 'BEARER']);
 
 it('accepts the query token when the bearer header is empty', function () {
-    config(['laravel-health-endpoints.token' => 'secret-token']);
+    config(['laravel-health-endpoints.token' => 'secret-token', 'laravel-health-endpoints.token_query' => true]);
 
     $this->getJson('/lhe/v1?token=secret-token', ['Authorization' => 'Bearer '])->assertOk();
 });
@@ -83,7 +108,7 @@ it('authenticates before 404 and 405', function () {
     $this->getJson('/lhe/v1/two-target-fixture/zzz')->assertUnauthorized();
     $this->getJson('/lhe/v1/Not_A/Valid/Path')->assertUnauthorized();
     $this->postJson('/lhe/v1')->assertUnauthorized();
-    $this->getJson('/lhe/v1/nope?token=secret-token')->assertNotFound();
+    $this->getJson('/lhe/v1/nope', ['Authorization' => 'Bearer secret-token'])->assertNotFound();
 });
 
 it('checks the IP allowlist before the token', function () {
@@ -155,15 +180,15 @@ it('rate limits per client IP', function () {
 it('rate limits before authentication', function () {
     config(['laravel-health-endpoints.rate_limit' => 2, 'laravel-health-endpoints.token' => 'secret-token']);
 
-    $this->getJson('/lhe/v1?token=a')->assertUnauthorized();
-    $this->getJson('/lhe/v1?token=b')->assertUnauthorized();
-    $this->getJson('/lhe/v1?token=secret-token')->assertStatus(429);
+    $this->getJson('/lhe/v1', ['Authorization' => 'Bearer a'])->assertUnauthorized();
+    $this->getJson('/lhe/v1', ['Authorization' => 'Bearer b'])->assertUnauthorized();
+    $this->getJson('/lhe/v1', ['Authorization' => 'Bearer secret-token'])->assertStatus(429);
 });
 
 it('does not use the token in the rate limiter key', function () {
     config(['laravel-health-endpoints.rate_limit' => 5, 'laravel-health-endpoints.token' => 'secret-token']);
 
-    $this->getJson('/lhe/v1?token=secret-token')->assertOk();
+    $this->getJson('/lhe/v1', ['Authorization' => 'Bearer secret-token'])->assertOk();
 
     expect((new RateLimiter(Cache::store('array')))->attempts('lhe:'.sha1('127.0.0.1')))->toBe(1);
 });
@@ -258,7 +283,7 @@ it('returns the same output with or without protection', function () {
 });
 
 it('never logs, echoes or caches the token', function () {
-    config(['laravel-health-endpoints.token' => 'secret-token', 'laravel-health-endpoints.cache_ttl' => 10, 'laravel-health-endpoints.rate_limit' => 100]);
+    config(['laravel-health-endpoints.token' => 'secret-token', 'laravel-health-endpoints.token_query' => true, 'laravel-health-endpoints.cache_ttl' => 10, 'laravel-health-endpoints.rate_limit' => 100]);
     LaravelHealthEndpoints::register(new FailingFixtureCheck);
     $logged = [];
     Event::listen(MessageLogged::class, function (MessageLogged $e) use (&$logged) {
@@ -309,7 +334,7 @@ it('does not warn when protected or outside production', function () {
 
     app()->instance('env', 'production');
     config(['laravel-health-endpoints.token' => 'secret-token']);
-    $this->getJson('/lhe/v1/ping?token=secret-token')->assertOk();
+    $this->getJson('/lhe/v1/ping', ['Authorization' => 'Bearer secret-token'])->assertOk();
 
     Log::shouldNotHaveReceived('warning');
 });
