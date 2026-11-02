@@ -1,0 +1,41 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use LEXO\LaravelHealthEndpoints\Checks\Check;
+use LEXO\LaravelHealthEndpoints\Support\CheckResult;
+
+/**
+ * Health check "{{ name }}".
+ *
+ * Available at GET /lhe/v1/{{ name }} and included in GET /lhe/v1.
+ *
+ * Rules:
+ * - The check name is derived from the class name: "DiskSpaceCheck" becomes "disk-space".
+ *   To choose it yourself, add `protected ?string $name = 'my-name';`.
+ *   A name must start with a letter and contain only lowercase letters, digits and hyphens ([a-z0-9-]).
+ *   Reserved names (used by built-in checks and routes): ping, database, redis, cache, storage,
+ *   queue, scheduler, migrations, debug-mode. Names must be unique.
+ * - Return CheckResult::ok() or CheckResult::fail(), or simply throw: any exception becomes a failed check.
+ * - Keep it fast: finish well within LHE_TIMEOUT (default 3 seconds). No long-running work.
+ * - Never put secrets (passwords, tokens, DSNs, keys) into the message or meta.
+ *   Both can appear in responses and logs.
+ * - Constructor dependencies are injected by the container.
+ *
+ * Verify it with: php artisan lhe:run {{ name }}
+ */
+class {{ class }} extends Check
+{
+    public function run(): CheckResult
+    {
+        // Replace this example body with your own check logic.
+        // (Example: report disk usage and fail at 90% or more.)
+        $percent = (int) round(100 - disk_free_space('/') / disk_total_space('/') * 100);
+
+        return $percent < 90
+            ? CheckResult::ok("{$percent}% used", ['percent_used' => $percent])
+            : CheckResult::fail("Disk almost full: {$percent}% used", ['percent_used' => $percent]);
+    }
+}

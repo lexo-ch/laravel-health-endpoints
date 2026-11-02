@@ -1,0 +1,9 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: max
+    paths:
+        - src
+        - config
+    noEnvCallsOutsideOfConfig: false # package config dir is not the app's config path; env() is only used in config/ (enforced by review)

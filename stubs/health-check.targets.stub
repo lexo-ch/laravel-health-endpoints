@@ -1,0 +1,50 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use LEXO\LaravelHealthEndpoints\Checks\TargetedCheck;
+use LEXO\LaravelHealthEndpoints\Support\CheckResult;
+
+/**
+ * Health check "{{ name }}" with multiple targets.
+ *
+ * Available at GET /lhe/v1/{{ name }} (all targets) and GET /lhe/v1/{{ name }}/{target} (one target).
+ *
+ * Rules:
+ * - The check name is derived from the class name: "DiskSpaceCheck" becomes "disk-space".
+ *   To choose it yourself, add `protected ?string $name = 'my-name';`.
+ *   A name must start with a letter and contain only lowercase letters, digits and hyphens ([a-z0-9-]).
+ *   Reserved names (used by built-in checks and routes): ping, database, redis, cache, storage,
+ *   queue, scheduler, migrations, debug-mode. Names must be unique.
+ * - targets() lists the configured target names (letters, digits and . _ : - only, max 128 characters).
+ * - runTarget() returns CheckResult::ok() or CheckResult::fail(), or simply throws: any exception
+ *   becomes a failed target.
+ * - Keep it fast: finish well within LHE_TIMEOUT (default 3 seconds). No long-running work.
+ * - Never put secrets (passwords, tokens, DSNs, keys) into the message or meta, or into target names.
+ *   They can appear in responses and logs.
+ * - Constructor dependencies are injected by the container.
+ *
+ * Verify it with: php artisan lhe:run {{ name }}
+ */
+class {{ class }} extends TargetedCheck
+{
+    /**
+     * @return list<string>
+     */
+    public function targets(): array
+    {
+        return ['primary', 'secondary'];
+    }
+
+    public function runTarget(string $target): CheckResult
+    {
+        // Replace with a real, fast probe of $target.
+        $reachable = in_array($target, $this->targets(), true);
+
+        return $reachable
+            ? CheckResult::ok("{$target} reachable")
+            : CheckResult::fail("{$target} unreachable");
+    }
+}
