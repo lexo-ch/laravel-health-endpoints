@@ -57,7 +57,9 @@ final class Heartbeats
             $value = (int) $value;
         }
 
-        return is_int($value) ? CarbonImmutable::createFromTimestamp($value) : null;
+        // Avoid createFromTimestamp(): its rawCreateFromFormat() call is miscompiled by
+        // the OPcache JIT on some PHP builds ("2 passed and at least 2 expected").
+        return is_int($value) ? new CarbonImmutable('@'.$value) : null;
     }
 
     private function store(): Repository
