@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/lexo-ch/laravel-health-endpoints/compare/v1.0.2...v1.0.3) (2026-11-06)
+
+
+### Bug Fixes
+
+* harden heartbeat reads and reject future heartbeats ([4207fb6](https://github.com/lexo-ch/laravel-health-endpoints/commit/4207fb62e807d51497c0c79a0e6a726252f0bacf))
+
 ## [1.0.2](https://github.com/lexo-ch/laravel-health-endpoints/compare/v1.0.1...v1.0.2) (2026-11-06)
 
 
