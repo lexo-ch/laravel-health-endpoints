@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Cache;
 use LEXO\LaravelHealthEndpoints\Support\Heartbeats;
@@ -51,6 +52,47 @@ it('ignores non-numeric heartbeat values', function (mixed $stored) {
 
     expect(app(Heartbeats::class)->last(Heartbeats::SCHEDULER_KEY))->toBeNull();
 })->with(['abc', '-1', '1.5', [[1]], 1.5]);
+
+it('reads heartbeats without Carbon rawCreateFromFormat', function () {
+    // Carbon consults the test clock inside rawCreateFromFormat(), so the closure sees that call in its backtrace.
+    $rawCalled = false;
+    Cache::store('array')->forever(Heartbeats::SCHEDULER_KEY, 1_700_000_000);
+    CarbonImmutable::setTestNow(function () use (&$rawCalled) {
+        $frames = array_column(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS), 'function');
+        $rawCalled = $rawCalled || in_array('rawCreateFromFormat', $frames, true);
+
+        return new DateTimeImmutable('2026-01-01T00:00:00+00:00');
+    });
+
+    try {
+        app(Heartbeats::class)->last(Heartbeats::SCHEDULER_KEY);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+
+    expect($rawCalled)->toBeFalse();
+});
+
+it('fails when the heartbeat is too far in the future', function (int $ahead) {
+    $this->freezeTime();
+    Cache::store('array')->forever(Heartbeats::SCHEDULER_KEY, now()->getTimestamp() + $ahead);
+
+    $this->getJson('/lhe/v1/scheduler')->assertStatus(503)
+        ->assertJsonPath('checks.scheduler.message', 'Scheduler heartbeat is in the future — check server clocks');
+})->with([61, 86_400]);
+
+it('tolerates small clock skew between servers', function () {
+    $this->freezeTime();
+    Cache::store('array')->forever(Heartbeats::SCHEDULER_KEY, now()->getTimestamp() + 60);
+
+    $this->getJson('/lhe/v1/scheduler')->assertOk();
+});
+
+it('fails on an out-of-range heartbeat value', function () {
+    Cache::store('array')->forever(Heartbeats::SCHEDULER_KEY, PHP_INT_MAX);
+
+    $this->getJson('/lhe/v1/scheduler')->assertStatus(503);
+});
 
 it('fails when the heartbeat is stale', function () {
     app(Heartbeats::class)->touch(Heartbeats::SCHEDULER_KEY);
