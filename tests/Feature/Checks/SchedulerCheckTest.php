@@ -37,6 +37,21 @@ it('passes with a fresh heartbeat and exposes it in meta', function () {
         ->assertJsonPath('checks.scheduler.meta.last_heartbeat', now()->toIso8601String());
 });
 
+it('reads stored heartbeats as UTC timestamps', function (int|string $stored) {
+    Cache::store('array')->forever(Heartbeats::SCHEDULER_KEY, $stored);
+
+    $last = app(Heartbeats::class)->last(Heartbeats::SCHEDULER_KEY);
+
+    expect($last?->getTimestamp())->toBe(1_700_000_000)
+        ->and($last?->getOffset())->toBe(0);
+})->with([1_700_000_000, '1700000000']);
+
+it('ignores non-numeric heartbeat values', function (mixed $stored) {
+    Cache::store('array')->forever(Heartbeats::SCHEDULER_KEY, $stored);
+
+    expect(app(Heartbeats::class)->last(Heartbeats::SCHEDULER_KEY))->toBeNull();
+})->with(['abc', '-1', '1.5', [[1]], 1.5]);
+
 it('fails when the heartbeat is stale', function () {
     app(Heartbeats::class)->touch(Heartbeats::SCHEDULER_KEY);
     $this->travel(3)->minutes();
