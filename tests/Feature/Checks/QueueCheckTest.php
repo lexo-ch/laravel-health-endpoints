@@ -67,6 +67,21 @@ it('passes after the job handled and fails when stale', function () {
         ->assertJsonPath('checks.queue.targets.database.message', 'Last queue heartbeat 6 min ago (max 5)');
 });
 
+it('fails when the heartbeat is too far in the future', function () {
+    $this->freezeTime();
+    Cache::store('array')->forever(Heartbeats::queueKey('database:default'), now()->getTimestamp() + 61);
+
+    $this->getJson('/lhe/v1/queue/database')->assertStatus(503)
+        ->assertJsonPath('checks.queue.targets.database.message', 'Queue heartbeat is in the future — check server clocks');
+});
+
+it('tolerates small clock skew between servers', function () {
+    $this->freezeTime();
+    Cache::store('array')->forever(Heartbeats::queueKey('database:default'), now()->getTimestamp() + 60);
+
+    $this->getJson('/lhe/v1/queue/database')->assertOk();
+});
+
 it('shares one heartbeat between "conn" and "conn:default-queue"', function () {
     config(['laravel-health-endpoints.queue.connections' => 'database,database:default']);
     (new QueueHeartbeatJob('database:default'))->handle(app(Heartbeats::class));

@@ -1166,6 +1166,7 @@ All built-in checks are enabled by default. Disabling one (`LHE_<NAME>_ENABLED=f
 |---|---|---|
 | `No queue heartbeat yet — are the scheduler and a queue worker running?` | fail | Normal for the first minute after deploy. Otherwise start the scheduler and a worker for this queue, or check `LHE_HEARTBEAT_STORE` |
 | `Last queue heartbeat 7 min ago (max 5)` | fail | Worker stopped, stuck or backlogged. Restart workers or raise `LHE_QUEUE_MAX_AGE` |
+| `Queue heartbeat is in the future — check server clocks` | fail | The stored heartbeat is more than 60 s ahead of this server. Sync server clocks (NTP) |
 | `Connection not configured` | fail | Connection name not in `config/queue.php` |
 | `sync driver — no worker required` | ok | `sync` connections run jobs inline; no heartbeat needed |
 | `null driver` | ok | `null` connections discard jobs |
@@ -1184,6 +1185,7 @@ All built-in checks are enabled by default. Disabling one (`LHE_<NAME>_ENABLED=f
 |---|---|
 | `No scheduler heartbeat yet — is schedule:run / schedule:work running?` | Normal for the first minute after deploy. Otherwise add the cron entry, or check that `LHE_HEARTBEAT_STORE` is shared |
 | `Last scheduler heartbeat 4 min ago (max 2)` | Cron stopped or the scheduler is blocked by a long-running task. Fix cron, use `->runInBackground()` for long tasks, or raise `LHE_SCHEDULER_MAX_AGE` |
+| `Scheduler heartbeat is in the future — check server clocks` | The stored heartbeat is more than 60 s ahead of this server. Sync server clocks (NTP) |
 
 - **When to disable:** **nothing runs the scheduler** (`LHE_SCHEDULER_ENABLED=false`). In that case also disable `queue`, because its heartbeat job is dispatched by the scheduler.
 

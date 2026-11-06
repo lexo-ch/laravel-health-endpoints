@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace LEXO\LaravelHealthEndpoints\Support;
 
 use Carbon\CarbonImmutable;
+use DateTimeImmutable;
 use Illuminate\Contracts\Cache\Factory;
 use Illuminate\Contracts\Cache\Repository;
 use Throwable;
@@ -15,6 +16,11 @@ use Throwable;
 final class Heartbeats
 {
     public const SCHEDULER_KEY = 'lhe:heartbeat:scheduler';
+
+    /**
+     * Allowed clock skew between the servers writing and reading heartbeats.
+     */
+    public const FUTURE_TOLERANCE_SECONDS = 60;
 
     private const QUEUE_KEY_PREFIX = 'lhe:heartbeat:queue:';
 
@@ -57,9 +63,9 @@ final class Heartbeats
             $value = (int) $value;
         }
 
-        // Avoid createFromTimestamp(): its rawCreateFromFormat() call is miscompiled by
-        // the OPcache JIT on some PHP builds ("2 passed and at least 2 expected").
-        return is_int($value) ? new CarbonImmutable('@'.$value) : null;
+        // Avoids Carbon's timestamp path (createFromTimestamp() and '@' strings), which goes through
+        // rawCreateFromFormat(): that call failed intermittently with "2 passed and at least 2 expected".
+        return is_int($value) ? CarbonImmutable::instance(new DateTimeImmutable('@'.$value)) : null;
     }
 
     private function store(): Repository
