@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/lexo-ch/laravel-health-endpoints/compare/v1.0.1...v1.0.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* avoid Carbon createFromTimestamp in heartbeat reads ([1a536c4](https://github.com/lexo-ch/laravel-health-endpoints/commit/1a536c4e56f6baeed417a5ff9c046209e70282cf))
+
 ## [1.0.1](https://github.com/lexo-ch/laravel-health-endpoints/compare/v1.0.0...v1.0.1) (2026-11-02)
 
 
