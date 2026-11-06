@@ -83,7 +83,11 @@ final class QueueCheck extends TargetedCheck
 
         $max = app(Settings::class)->queueMaxAge();
         $meta = ['last_heartbeat' => $last->toIso8601String()];
-        $elapsed = (int) $last->diffInSeconds(CarbonImmutable::now(), false);
+        $elapsed = CarbonImmutable::now()->getTimestamp() - $last->getTimestamp();
+
+        if ($elapsed < -Heartbeats::FUTURE_TOLERANCE_SECONDS) {
+            return CheckResult::fail('Queue heartbeat is in the future — check server clocks', $meta);
+        }
 
         if ($elapsed > $max * 60) {
             return CheckResult::fail(
